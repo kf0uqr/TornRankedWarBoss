@@ -76,12 +76,25 @@ def sync_war(client: TornClient, conn, faction_id: int, ranked_war_id: int) -> i
         respect_lost_end = end
     respect_lost = stats.compute_respect_lost(client, start, respect_lost_end) if respect_lost_end > start else {}
 
-    member_ids = (
-        set(inside_hits) | set(outside_hits) | set(assist_hits) | set(positions)
-        | set(xanax_used) | set(respect_lost)
-    )
+    # Scoped to who was actually on the war roster (rankedwarreport lists every member
+    # present during the war, even 0-hit ones, regardless of whether they've since left
+    # the faction) or fought in one of its chains. Deliberately excludes `positions`
+    # (current roster) and the xanax/respect_lost lookups, which are time-window based
+    # and would otherwise pull in members who joined after the war was already over.
+    member_ids = set(inside_hits) | set(outside_hits) | set(assist_hits)
 
     known_ranks = {r["rank_name"] for r in conn.execute("SELECT rank_name FROM rank_pay_rates")}
+
+    # Prune anyone left over from a previous sync who's no longer on the war roster
+    # (e.g. joined after the war and got swept in by an earlier version of this logic).
+    if member_ids:
+        placeholders = ",".join("?" * len(member_ids))
+        conn.execute(
+            f"DELETE FROM war_members WHERE war_id = ? AND member_id NOT IN ({placeholders})",
+            (ranked_war_id, *member_ids),
+        )
+    else:
+        conn.execute("DELETE FROM war_members WHERE war_id = ?", (ranked_war_id,))
 
     conn.execute(
         """
