@@ -6,6 +6,7 @@ DB_PATH = Path(__file__).resolve().parent.parent / "torn_war_manager.db"
 
 DEFAULT_RANK_PAY_RATES = [
     ("Leader", 0.0),
+    ("Kingpin", 110.0),
     ("Co-Leader", 100.0),
     ("Chief Evasion Officer", 100.0),
     ("Ledger Keeper", 100.0),
@@ -143,6 +144,11 @@ def init_db():
             conn.executemany(
                 "INSERT INTO rank_pay_rates (rank_name, pay_rate_pct) VALUES (?, ?)",
                 DEFAULT_RANK_PAY_RATES,
+            )
+        else:
+            # Added after the initial seed - make sure it exists on dbs created before this.
+            conn.execute(
+                "INSERT OR IGNORE INTO rank_pay_rates (rank_name, pay_rate_pct) VALUES ('Kingpin', 110.0)"
             )
 
         existing = conn.execute("SELECT COUNT(*) FROM armory_targets").fetchone()[0]

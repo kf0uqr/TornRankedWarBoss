@@ -239,6 +239,7 @@ async function renderWarDetail(warId) {
         <div class="stat"><div class="label">Total Expenses</div><div class="value">${money(t.total_expenses)}</div></div>
         <div class="stat"><div class="label">War Pay</div><div class="value">${money(t.war_pay)}</div></div>
         <div class="stat"><div class="label">Pay For Hits</div><div class="value">${money(t.pay_for_hits)}</div></div>
+        <div class="stat"><div class="label">Leadership Cut</div><div class="value">${money(t.leadership_cut_amount)}</div></div>
         <div class="stat"><div class="label">Inside Hits</div><div class="value">${num(t.total_inside_hits)}</div></div>
         <div class="stat"><div class="label">Outside+Assist Hits</div><div class="value">${num(t.total_outside_assist_hits)}</div></div>
         <div class="stat"><div class="label">$ / Inside Hit</div><div class="value">${money(t.per_inside_hit_rate)}</div></div>
@@ -267,6 +268,11 @@ async function renderWarDetail(warId) {
             <td>${money(data.armory_line.amount)}</td>
             <td></td>
           </tr>
+          <tr>
+            <td><em>${data.salary_line.label} (computed)</em></td>
+            <td>${money(data.salary_line.amount)}</td>
+            <td></td>
+          </tr>
         </tbody>
       </table>
       <div class="row" style="margin-top:10px">
@@ -282,7 +288,7 @@ async function renderWarDetail(warId) {
         <thead>
           <tr>
             <th>Name</th><th>Inside</th><th>Outside</th><th>Assists</th><th>Xanax Used</th>
-            <th>Rank</th><th>Fine</th><th>Paid Back</th><th>Gross Pay</th><th>Final Pay</th>
+            <th>Rank</th><th>Fine</th><th>Paid Back</th><th>Gross Pay</th><th>Bonus</th><th>Final Pay</th>
           </tr>
         </thead>
         <tbody id="member-rows"></tbody>
@@ -355,6 +361,12 @@ async function renderWarDetail(warId) {
     const fineTitle = m.unpaid_xanax
       ? `${num(m.unpaid_xanax)} xanax not covered by hits (${HITS_PER_XANAX} hits/xanax, rounded up)`
       : "";
+    const bonus = m.flat_bonus + m.leadership_cut_share;
+    const bonusTitle = m.leadership_cut_share
+      ? "Leadership cut (share)"
+      : m.flat_bonus
+        ? "Flat rank salary"
+        : "";
     tr.innerHTML = `
       <td>${m.name}</td>
       <td>${num(m.inside_hits)}</td>
@@ -365,6 +377,7 @@ async function renderWarDetail(warId) {
       <td title="${fineTitle}">${money(m.calculated_fine)}</td>
       <td><input type="checkbox" class="member-fine-waived" data-member="${m.member_id}" ${m.fine_waived ? "checked" : ""} ${m.calculated_fine ? "" : "disabled"} /></td>
       <td>${money(m.gross_pay)}</td>
+      <td title="${bonusTitle}">${money(bonus)}</td>
       <td><strong class="${m.final_pay < 0 ? "negative" : ""}">${money(m.final_pay)}</strong></td>
     `;
     memberBody.appendChild(tr);

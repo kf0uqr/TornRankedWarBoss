@@ -118,8 +118,6 @@ def get_war(war_id: int):
         except (HTTPException, TornAPIError) as exc:
             armory_error = getattr(exc, "detail", None) or getattr(exc, "message", str(exc))
 
-        all_expense_lines = expense_lines + [armory_line]
-
         member_rows = conn.execute(
             "SELECT * FROM war_members WHERE war_id = ? ORDER BY name", (war_id,)
         ).fetchall()
@@ -136,6 +134,13 @@ def get_war(war_id: int):
             )
             for r in member_rows
         ]
+
+        # Co-Leader / Chief Evasion Officer draw a flat salary on top of hit-based pay
+        # (see payout.FLAT_RANK_BONUSES) - it's a real cost, so it goes in expenses too.
+        salary_total = sum(payout.FLAT_RANK_BONUSES.get(m.pay_rank, 0.0) for m in members)
+        salary_line = {"id": None, "label": "Leadership Salaries (Co-Leader/CEO)", "amount": salary_total}
+
+        all_expense_lines = expense_lines + [armory_line, salary_line]
 
         rank_rows = conn.execute("SELECT rank_name, pay_rate_pct FROM rank_pay_rates").fetchall()
         rank_pay_rates = {r["rank_name"]: r["pay_rate_pct"] for r in rank_rows}
@@ -156,10 +161,12 @@ def get_war(war_id: int):
             "expense_lines": expense_lines,
             "armory_line": armory_line,
             "armory_error": armory_error,
+            "salary_line": salary_line,
             "totals": {
                 "total_expenses": result.total_expenses,
                 "war_pay": result.war_pay,
                 "pay_for_hits": result.pay_for_hits,
+                "leadership_cut_amount": result.leadership_cut_amount,
                 "total_inside_hits": result.total_inside_hits,
                 "total_outside_assist_hits": result.total_outside_assist_hits,
                 "per_inside_hit_rate": result.per_inside_hit_rate,

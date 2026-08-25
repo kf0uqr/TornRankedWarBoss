@@ -15,13 +15,27 @@ Each xanax is expected to buy 10 hits (inside + outside + assist, rounded up - e
 hits covers 2 xanax). Any xanax used beyond what the member's hits cover is fined at
 FINE_PER_UNPAID_XANAX, unless the member has paid it back (fine_waived).
 
-member_final = (member_gross - applied_fine) * rank_pay_rate
+Members on a 0%-rate rank (e.g. Leader) don't participate in the hit pool at all - instead
+they split the leadership cut taken off the top (war_pay - pay_for_hits) evenly between them.
+
+Co-Leader and Chief Evasion Officer additionally draw a flat salary (FLAT_RANK_BONUSES) on
+top of their hit-based pay, same as the leadership cut, unaffected by fines. The caller is
+expected to also add this same amount to the war's expenses (it's a real cost, not free money).
+
+member_final = (member_gross - applied_fine) * rank_pay_rate + flat_bonus + leadership_cut_share
 """
 
 from dataclasses import dataclass, field
 
 HITS_PER_XANAX = 10
 FINE_PER_UNPAID_XANAX = 1_000_000
+
+# Ranks that draw a flat salary on top of hit-based pay, regardless of hits made.
+# The caller must also fold this into the war's expenses - see routes/wars.py.
+FLAT_RANK_BONUSES = {
+    "Co-Leader": 12_000_000,
+    "Chief Evasion Officer": 12_000_000,
+}
 
 
 @dataclass
@@ -53,6 +67,8 @@ class MemberResult:
     pay_inside: float
     pay_outside: float
     gross_pay: float
+    flat_bonus: float
+    leadership_cut_share: float
     final_pay: float
 
 
@@ -61,6 +77,7 @@ class PaysheetResult:
     total_expenses: float
     war_pay: float
     pay_for_hits: float
+    leadership_cut_amount: float
     total_inside_hits: int
     total_outside_assist_hits: int
     per_inside_hit_rate: float
@@ -79,10 +96,13 @@ def compute_paysheet(
     total_expenses = sum(line["amount"] for line in expense_lines)
     war_pay = cache_sell_price - total_expenses
     pay_for_hits = war_pay * (1 - leadership_cut_pct / 100)
+    leadership_cut_amount = war_pay - pay_for_hits
 
     # Members on a 0%-rate rank (e.g. Leader) are paid via the flat leadership cut above,
     # not the per-hit pool - their hits are excluded so they don't dilute everyone else's rate.
     pool_members = [m for m in members if rank_pay_rates.get(m.pay_rank, 0.0) != 0]
+    cut_recipients = [m for m in members if rank_pay_rates.get(m.pay_rank, 0.0) == 0]
+    leadership_cut_per_recipient = leadership_cut_amount / len(cut_recipients) if cut_recipients else 0.0
     total_inside_hits = sum(m.inside_hits for m in pool_members)
     total_outside_assist_hits = sum(m.outside_hits + m.assist_hits for m in pool_members)
     total_hits = total_inside_hits + total_outside_assist_hits
@@ -115,7 +135,10 @@ def compute_paysheet(
         calculated_fine = unpaid_xanax * FINE_PER_UNPAID_XANAX
         applied_fine = 0.0 if m.fine_waived else calculated_fine
 
-        final_pay = (gross_pay - applied_fine) * (rank_rate_pct / 100)
+        flat_bonus = FLAT_RANK_BONUSES.get(m.pay_rank, 0.0)
+        leadership_cut_share = leadership_cut_per_recipient if rank_rate_pct == 0 else 0.0
+
+        final_pay = (gross_pay - applied_fine) * (rank_rate_pct / 100) + flat_bonus + leadership_cut_share
 
         member_results.append(
             MemberResult(
@@ -134,6 +157,8 @@ def compute_paysheet(
                 pay_inside=pay_inside,
                 pay_outside=pay_outside,
                 gross_pay=gross_pay,
+                flat_bonus=flat_bonus,
+                leadership_cut_share=leadership_cut_share,
                 final_pay=final_pay,
             )
         )
@@ -142,6 +167,7 @@ def compute_paysheet(
         total_expenses=total_expenses,
         war_pay=war_pay,
         pay_for_hits=pay_for_hits,
+        leadership_cut_amount=leadership_cut_amount,
         total_inside_hits=total_inside_hits,
         total_outside_assist_hits=total_outside_assist_hits,
         per_inside_hit_rate=per_inside_hit_rate,
