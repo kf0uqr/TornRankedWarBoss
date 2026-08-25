@@ -1,0 +1,29 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Torn Ranked War Manager</title>
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+  <header>
+    <h1>Torn Ranked War Manager</h1>
+    <nav>
+      <button class="tab-btn" data-tab="wars">Wars</button>
+      <button class="tab-btn" data-tab="armory">Armory</button>
+      <button class="tab-btn" data-tab="settings">Settings</button>
+    </nav>
+  </header>
+
+  <main>
+    <section id="tab-wars" class="tab"></section>
+    <section id="tab-armory" class="tab hidden"></section>
+    <section id="tab-settings" class="tab hidden"></section>
+  </main>
+
+  <div id="toast"></div>
+
+  <script src="app.js"></script>
+</body>
+</html>

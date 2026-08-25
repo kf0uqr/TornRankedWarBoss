@@ -1,0 +1,11 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "torn-war-manager",
+      "runtimeExecutable": "./start.sh",
+      "runtimeArgs": [],
+      "port": 8787
+    }
+  ]
+}
