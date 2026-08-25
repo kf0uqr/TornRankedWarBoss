@@ -93,6 +93,33 @@ class TornClient:
             cursor_from = max(i["timestamp"] for i in items)
         return results
 
+    def faction_attacks(self, direction: str, from_ts: int, to_ts: int) -> list[dict]:
+        """Fetches every attack in [from_ts, to_ts] in the given direction (incoming/outgoing), paginating as needed."""
+        results = []
+        seen_ids = set()
+        cursor_from = from_ts
+        while True:
+            data = self.get(
+                "/faction/attacks",
+                {
+                    "filters": direction,
+                    "from": cursor_from,
+                    "to": to_ts,
+                    "sort": "ASC",
+                    "limit": 100,
+                },
+            )
+            items = data["attacks"]
+            new_items = [i for i in items if i["id"] not in seen_ids]
+            if not new_items:
+                break
+            seen_ids.update(i["id"] for i in new_items)
+            results.extend(new_items)
+            if len(items) < 100:
+                break
+            cursor_from = max(i["started"] for i in items)
+        return results
+
     # --- Torn endpoints ---
 
     def torn_items(self, category: str | None = None) -> list[dict]:

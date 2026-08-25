@@ -1,7 +1,7 @@
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 
-from backend import armory, db, payout, sync
+from backend import armory, db, payout, stats, sync
 from backend.deps import require_client, require_faction_id, torn_error_to_http
 from backend.torn_api import TornAPIError
 
@@ -182,6 +182,22 @@ def get_war(war_id: int):
                 for m in result.members
             ],
         }
+    finally:
+        conn.close()
+
+
+@router.get("/{war_id}/stats")
+def get_war_stats(war_id: int):
+    conn = db.get_connection()
+    try:
+        _get_war_row(conn, war_id)
+        member_rows = conn.execute(
+            "SELECT member_id, name, inside_hits, outside_hits, assist_hits, respect, respect_lost, pay_rank "
+            "FROM war_members WHERE war_id = ?",
+            (war_id,),
+        ).fetchall()
+        members = [dict(r) for r in member_rows]
+        return stats.compute_player_stats(members)
     finally:
         conn.close()
 

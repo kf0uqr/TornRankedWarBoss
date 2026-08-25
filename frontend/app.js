@@ -38,6 +38,31 @@ function fmtDate(ts) {
   return new Date(ts * 1000).toLocaleDateString();
 }
 
+function renderStatsTable(members) {
+  if (!members.length) return `<p class="muted">No members in this group.</p>`;
+  const rows = members
+    .map(
+      (m) => `
+    <tr>
+      <td>${m.name}</td>
+      <td>${num(m.total_hits)} <span class="muted">(#${m.hits_rank})</span></td>
+      <td>${num(m.respect, 2)} <span class="muted">(#${m.respect_gained_rank})</span></td>
+      <td>${num(m.respect_lost, 2)} <span class="muted">(#${m.respect_lost_rank})</span></td>
+      <td>${m.score}</td>
+      <td><strong>#${m.overall_rank}</strong></td>
+    </tr>`
+    )
+    .join("");
+  return `
+    <table>
+      <thead>
+        <tr><th>Name</th><th>Total Hits</th><th>Respect Gained</th><th>Respect Lost</th><th>Score</th><th>Overall Rank</th></tr>
+      </thead>
+      <tbody>${rows}</tbody>
+    </table>
+  `;
+}
+
 // ---------- Tabs ----------
 
 function switchTab(name) {
@@ -215,7 +240,10 @@ async function renderWars() {
 async function renderWarDetail(warId) {
   const root = document.getElementById("tab-wars");
   root.innerHTML = `<div class="card"><p class="muted">Loading war...</p></div>`;
-  const data = await api(`/api/wars/${warId}`);
+  const [data, playerStats] = await Promise.all([
+    api(`/api/wars/${warId}`),
+    api(`/api/wars/${warId}/stats`),
+  ]);
 
   const w = data.war;
   const t = data.totals;
@@ -293,6 +321,15 @@ async function renderWarDetail(warId) {
         </thead>
         <tbody id="member-rows"></tbody>
       </table>
+    </div>
+
+    <div class="card">
+      <h2>Player Stats</h2>
+      <p class="muted">Ranked on total hits, respect gained from inside hits, and least respect lost defending against inside hits. Ranks are summed into a Score, then re-ranked overall (lower is better).</p>
+      <h3>Leadership</h3>
+      ${renderStatsTable(playerStats.leadership)}
+      <h3 style="margin-top:18px">Everyone Else</h3>
+      ${renderStatsTable(playerStats.others)}
     </div>
   `;
 

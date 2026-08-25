@@ -8,7 +8,7 @@ is pulled and summed per attacker.
 
 import time
 
-from backend import armory
+from backend import armory, stats
 from backend.torn_api import TornClient
 
 
@@ -59,7 +59,14 @@ def sync_war(client: TornClient, conn, faction_id: int, ranked_war_id: int) -> i
     xanax_window_start = _prior_war_end(client, faction_id, start) or start
     xanax_used = armory.count_item_usage(client, "Xanax", xanax_window_start, end)
 
-    member_ids = set(inside_hits) | set(outside_hits) | set(assist_hits) | set(positions) | set(xanax_used)
+    # Respect lost is every incoming attack during the war itself (not the xanax window
+    # above) - it's tied to the war's own fighting, whoever the attacker turns out to be.
+    respect_lost = stats.compute_respect_lost(client, start, end)
+
+    member_ids = (
+        set(inside_hits) | set(outside_hits) | set(assist_hits) | set(positions)
+        | set(xanax_used) | set(respect_lost)
+    )
 
     known_ranks = {r["rank_name"] for r in conn.execute("SELECT rank_name FROM rank_pay_rates")}
 
@@ -93,8 +100,8 @@ def sync_war(client: TornClient, conn, faction_id: int, ranked_war_id: int) -> i
         conn.execute(
             """
             INSERT INTO war_members
-                (war_id, member_id, name, position, level, inside_hits, outside_hits, assist_hits, respect, pay_rank, xanax_used, fine_waived)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                (war_id, member_id, name, position, level, inside_hits, outside_hits, assist_hits, respect, respect_lost, pay_rank, xanax_used, fine_waived)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             ON CONFLICT(war_id, member_id) DO UPDATE SET
                 name = excluded.name,
                 position = excluded.position,
@@ -103,6 +110,7 @@ def sync_war(client: TornClient, conn, faction_id: int, ranked_war_id: int) -> i
                 outside_hits = excluded.outside_hits,
                 assist_hits = excluded.assist_hits,
                 respect = excluded.respect,
+                respect_lost = excluded.respect_lost,
                 pay_rank = excluded.pay_rank,
                 xanax_used = excluded.xanax_used,
                 fine_waived = excluded.fine_waived
@@ -117,6 +125,7 @@ def sync_war(client: TornClient, conn, faction_id: int, ranked_war_id: int) -> i
                 outside_hits.get(mid, 0),
                 assist_hits.get(mid, 0),
                 respect.get(mid, 0.0),
+                respect_lost.get(mid, 0.0),
                 pay_rank,
                 xanax_used.get(mid, 0),
                 fine_waived,
