@@ -38,29 +38,213 @@ function fmtDate(ts) {
   return new Date(ts * 1000).toLocaleDateString();
 }
 
+function tsToDatetimeLocal(ts) {
+  if (!ts) return "";
+  const d = new Date(ts * 1000);
+  const pad = (n) => String(n).padStart(2, "0");
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
+}
+
+function datetimeLocalToTs(value) {
+  if (!value) return null;
+  return Math.floor(new Date(value).getTime() / 1000);
+}
+
+const STAT_HEADERS = ["Name", "Total Hits", "Respect Gained", "Respect Lost", "Score", "Overall Rank"];
+
+function statsRowCells(m) {
+  return [
+    m.name,
+    `${num(m.total_hits)} (#${m.hits_rank})`,
+    `${num(m.respect, 2)} (#${m.respect_gained_rank})`,
+    `${num(m.respect_lost, 2)} (#${m.respect_lost_rank})`,
+    `${m.score}`,
+    `#${m.overall_rank}`,
+  ];
+}
+
 function renderStatsTable(members) {
   if (!members.length) return `<p class="muted">No members in this group.</p>`;
   const rows = members
-    .map(
-      (m) => `
-    <tr>
-      <td>${m.name}</td>
-      <td>${num(m.total_hits)} <span class="muted">(#${m.hits_rank})</span></td>
-      <td>${num(m.respect, 2)} <span class="muted">(#${m.respect_gained_rank})</span></td>
-      <td>${num(m.respect_lost, 2)} <span class="muted">(#${m.respect_lost_rank})</span></td>
-      <td>${m.score}</td>
-      <td><strong>#${m.overall_rank}</strong></td>
-    </tr>`
-    )
+    .map((m) => `<tr>${statsRowCells(m).map((c) => `<td>${c}</td>`).join("")}</tr>`)
     .join("");
   return `
     <table>
-      <thead>
-        <tr><th>Name</th><th>Total Hits</th><th>Respect Gained</th><th>Respect Lost</th><th>Score</th><th>Overall Rank</th></tr>
-      </thead>
+      <thead><tr>${STAT_HEADERS.map((h) => `<th>${h}</th>`).join("")}</tr></thead>
       <tbody>${rows}</tbody>
     </table>
   `;
+}
+
+const PAYSHEET_HEADERS = [
+  "Name", "Inside", "Outside", "Assists", "Xanax Used", "Rank", "Fine", "Paid Back", "Gross Pay", "Bonus", "Final Pay",
+];
+
+function paysheetRowCells(m) {
+  const bonus = m.flat_bonus + m.leadership_cut_share;
+  return [
+    m.name,
+    num(m.inside_hits),
+    num(m.outside_hits),
+    num(m.assist_hits),
+    num(m.xanax_used),
+    m.pay_rank || "-",
+    money(m.calculated_fine),
+    m.fine_waived ? "Yes" : "No",
+    money(m.gross_pay),
+    money(bonus),
+    { text: money(m.final_pay), color: m.final_pay < 0 ? IMAGE_COLORS.bad : undefined },
+  ];
+}
+
+// ---------- Copy tables as image ----------
+
+const IMAGE_COLORS = {
+  panel: "#1b1e27",
+  panelAlt: "#232735",
+  border: "#2e3342",
+  text: "#e6e8ee",
+  textDim: "#9aa1b2",
+  accent: "#5da9ff",
+  bad: "#e0616b",
+};
+
+const IMG_HEADER_FONT = "600 13px -apple-system, Segoe UI, Roboto, sans-serif";
+const IMG_CELL_FONT = "13px -apple-system, Segoe UI, Roboto, sans-serif";
+
+function cellText(cell) {
+  return cell && typeof cell === "object" ? cell.text : String(cell);
+}
+
+function measureColWidths(ctx, headers, rowsText) {
+  ctx.font = IMG_HEADER_FONT;
+  const widths = headers.map((h) => ctx.measureText(h).width);
+  ctx.font = IMG_CELL_FONT;
+  rowsText.forEach((r) => r.forEach((cell, i) => { widths[i] = Math.max(widths[i], ctx.measureText(cell).width); }));
+  return widths;
+}
+
+function drawTableBlock(ctx, x, y, headers, rows, colWidths, colPad, rowHeight) {
+  const totalWidth = colWidths.reduce((a, b) => a + b + colPad * 2, 0);
+
+  ctx.fillStyle = IMAGE_COLORS.panelAlt;
+  ctx.fillRect(x, y, totalWidth, rowHeight);
+  ctx.fillStyle = IMAGE_COLORS.textDim;
+  ctx.font = IMG_HEADER_FONT;
+  ctx.textBaseline = "middle";
+  let curX = x;
+  headers.forEach((h, i) => {
+    ctx.fillText(h, curX + colPad, y + rowHeight / 2);
+    curX += colWidths[i] + colPad * 2;
+  });
+
+  let curY = y + rowHeight;
+  rows.forEach((r, ri) => {
+    if (ri % 2 === 1) {
+      ctx.fillStyle = "rgba(255,255,255,0.03)";
+      ctx.fillRect(x, curY, totalWidth, rowHeight);
+    }
+    ctx.font = IMG_CELL_FONT;
+    curX = x;
+    r.forEach((cell, ci) => {
+      ctx.fillStyle = (cell && cell.color) || IMAGE_COLORS.text;
+      ctx.fillText(cellText(cell), curX + colPad, curY + rowHeight / 2);
+      curX += colWidths[ci] + colPad * 2;
+    });
+    curY += rowHeight;
+  });
+
+  ctx.strokeStyle = IMAGE_COLORS.border;
+  ctx.lineWidth = 1;
+  ctx.strokeRect(x + 0.5, y + 0.5, totalWidth - 1, rowHeight * (rows.length + 1) - 1);
+
+  return { width: totalWidth, height: rowHeight * (rows.length + 1) };
+}
+
+async function copyTablesAsImage(title, sections) {
+  const measureCanvas = document.createElement("canvas");
+  const mctx = measureCanvas.getContext("2d");
+
+  const colPad = 14;
+  const rowHeight = 30;
+  const padding = 28;
+  const titleHeight = 34;
+  const sectionGap = 26;
+  const subHeaderHeight = 26;
+
+  // Sections sharing identical headers get matching column widths so tables line up.
+  const groups = {};
+  sections.forEach((s, i) => {
+    const key = s.headers.join("␟");
+    (groups[key] = groups[key] || []).push(i);
+  });
+  const colWidthsBySection = new Array(sections.length);
+  Object.values(groups).forEach((idxs) => {
+    const headers = sections[idxs[0]].headers;
+    const rowsText = idxs.flatMap((i) => sections[i].rows.map((r) => r.map(cellText)));
+    const widths = measureColWidths(mctx, headers, rowsText);
+    idxs.forEach((i) => { colWidthsBySection[i] = widths; });
+  });
+
+  const width = Math.max(...sections.map((s, i) => colWidthsBySection[i].reduce((a, b) => a + b + colPad * 2, 0))) + padding * 2;
+
+  let height = padding * 2 + titleHeight;
+  sections.forEach((s, i) => {
+    if (s.heading) height += subHeaderHeight;
+    height += rowHeight * (s.rows.length + 1);
+    if (i < sections.length - 1) height += sectionGap;
+  });
+
+  const dpr = window.devicePixelRatio || 1;
+  const canvas = document.createElement("canvas");
+  canvas.width = Math.ceil(width * dpr);
+  canvas.height = Math.ceil(height * dpr);
+  const ctx = canvas.getContext("2d");
+  ctx.scale(dpr, dpr);
+
+  ctx.fillStyle = IMAGE_COLORS.panel;
+  ctx.fillRect(0, 0, width, height);
+
+  let y = padding;
+  ctx.fillStyle = IMAGE_COLORS.text;
+  ctx.font = "700 18px -apple-system, Segoe UI, Roboto, sans-serif";
+  ctx.textBaseline = "top";
+  ctx.fillText(title, padding, y);
+  y += titleHeight;
+
+  sections.forEach((s, i) => {
+    if (s.heading) {
+      ctx.font = "700 14px -apple-system, Segoe UI, Roboto, sans-serif";
+      ctx.fillStyle = IMAGE_COLORS.accent;
+      ctx.textBaseline = "top";
+      ctx.fillText(s.heading, padding, y);
+      y += subHeaderHeight;
+    }
+    const block = drawTableBlock(ctx, padding, y, s.headers, s.rows, colWidthsBySection[i], colPad, rowHeight);
+    y += block.height;
+    if (i < sections.length - 1) y += sectionGap;
+  });
+
+  const blob = await new Promise((resolve) => canvas.toBlob(resolve, "image/png"));
+  if (!blob) {
+    toast("Failed to render image", true);
+    return;
+  }
+
+  try {
+    await navigator.clipboard.write([new ClipboardItem({ "image/png": blob })]);
+    toast("Copied image to clipboard");
+  } catch (err) {
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `${title.replace(/[^a-z0-9]+/gi, "_")}.png`;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    URL.revokeObjectURL(url);
+    toast("Clipboard unavailable - downloaded image instead", true);
+  }
 }
 
 // ---------- Tabs ----------
@@ -247,6 +431,7 @@ async function renderWarDetail(warId) {
 
   const w = data.war;
   const t = data.totals;
+  const warTitle = `vs ${w.opponent_name ?? "?"} (${fmtDate(w.start)} - ${fmtDate(w.end)})`;
 
   root.innerHTML = `
     <button class="action" id="back-to-wars" style="margin-bottom:14px">&larr; All Wars</button>
@@ -259,6 +444,11 @@ async function renderWarDetail(warId) {
         <label>Outside Pay Rate %<br/><input type="number" id="outside-rate" value="${w.outside_pay_rate_pct}" style="width:100px" /></label>
         <button class="action" id="save-war-settings" style="align-self:flex-end">Apply</button>
         <button class="action" id="resync-war" style="align-self:flex-end">Re-sync</button>
+      </div>
+      <div class="row" style="margin-top:10px">
+        <label style="display:flex;align-items:center;gap:6px"><input type="checkbox" id="is-termed" ${w.is_termed ? "checked" : ""} /> War was termed</label>
+        <label>Termed At<br/><input type="datetime-local" id="termed-at" value="${tsToDatetimeLocal(w.termed_at)}" ${w.is_termed ? "" : "disabled"} /></label>
+        <span class="muted">Respect Lost only counts up to this point (or not at all if termed with no time set). Re-sync to recompute it.</span>
       </div>
     </div>
 
@@ -311,7 +501,10 @@ async function renderWarDetail(warId) {
     </div>
 
     <div class="card">
-      <h2>Paysheet</h2>
+      <div class="row between">
+        <h2>Paysheet</h2>
+        <button class="action" id="copy-paysheet-image">Copy as Image</button>
+      </div>
       <table>
         <thead>
           <tr>
@@ -324,7 +517,10 @@ async function renderWarDetail(warId) {
     </div>
 
     <div class="card">
-      <h2>Player Stats</h2>
+      <div class="row between">
+        <h2>Player Stats</h2>
+        <button class="action" id="copy-stats-image">Copy as Image</button>
+      </div>
       <p class="muted">Ranked on total hits, respect gained from inside hits, and least respect lost defending against inside hits. Ranks are summed into a Score, then re-ranked overall (lower is better).</p>
       <h3>Leadership</h3>
       ${renderStatsTable(playerStats.leadership)}
@@ -333,9 +529,26 @@ async function renderWarDetail(warId) {
     </div>
   `;
 
+  root.querySelector("#copy-stats-image").addEventListener("click", () => {
+    copyTablesAsImage(`Player Stats ${warTitle}`, [
+      { heading: "Leadership", headers: STAT_HEADERS, rows: playerStats.leadership.map(statsRowCells) },
+      { heading: "Everyone Else", headers: STAT_HEADERS, rows: playerStats.others.map(statsRowCells) },
+    ]);
+  });
+
+  root.querySelector("#copy-paysheet-image").addEventListener("click", () => {
+    copyTablesAsImage(`Paysheet ${warTitle}`, [
+      { headers: PAYSHEET_HEADERS, rows: data.members.map(paysheetRowCells) },
+    ]);
+  });
+
   root.querySelector("#back-to-wars").addEventListener("click", () => {
     state.warId = null;
     renderWars();
+  });
+
+  root.querySelector("#is-termed").addEventListener("change", (e) => {
+    root.querySelector("#termed-at").disabled = !e.target.checked;
   });
 
   root.querySelector("#save-war-settings").addEventListener("click", async () => {
@@ -345,9 +558,11 @@ async function renderWarDetail(warId) {
         cache_sell_price: Number(root.querySelector("#cache-price").value),
         leadership_cut_pct: Number(root.querySelector("#leadership-cut").value),
         outside_pay_rate_pct: Number(root.querySelector("#outside-rate").value),
+        is_termed: root.querySelector("#is-termed").checked,
+        termed_at: datetimeLocalToTs(root.querySelector("#termed-at").value),
       }),
     });
-    toast("Saved");
+    toast("Saved - re-sync to recompute Respect Lost");
     renderWarDetail(warId);
   });
 

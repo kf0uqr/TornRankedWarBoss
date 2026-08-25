@@ -63,6 +63,8 @@ CREATE TABLE IF NOT EXISTS wars (
     cache_sell_price REAL NOT NULL DEFAULT 0,
     leadership_cut_pct REAL NOT NULL DEFAULT 15.0,
     outside_pay_rate_pct REAL NOT NULL DEFAULT 70.0,
+    is_termed INTEGER NOT NULL DEFAULT 0,
+    termed_at INTEGER,
     synced_at INTEGER
 );
 
@@ -122,6 +124,12 @@ def _post_migrate(conn, had_legacy_fine: bool):
         conn.execute("ALTER TABLE war_members ADD COLUMN xanax_used INTEGER NOT NULL DEFAULT 0")
     if "respect_lost" not in columns:
         conn.execute("ALTER TABLE war_members ADD COLUMN respect_lost REAL NOT NULL DEFAULT 0")
+
+    war_columns = {row["name"] for row in conn.execute("PRAGMA table_info(wars)")}
+    if "is_termed" not in war_columns:
+        conn.execute("ALTER TABLE wars ADD COLUMN is_termed INTEGER NOT NULL DEFAULT 0")
+    if "termed_at" not in war_columns:
+        conn.execute("ALTER TABLE wars ADD COLUMN termed_at INTEGER")
 
     if had_legacy_fine:
         conn.execute(

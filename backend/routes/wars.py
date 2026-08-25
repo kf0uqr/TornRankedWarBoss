@@ -12,6 +12,8 @@ class WarSettingsIn(BaseModel):
     cache_sell_price: float | None = None
     leadership_cut_pct: float | None = None
     outside_pay_rate_pct: float | None = None
+    is_termed: bool | None = None
+    termed_at: int | None = None
 
 
 class ExpenseLineIn(BaseModel):
@@ -207,12 +209,20 @@ def update_war_settings(war_id: int, body: WarSettingsIn):
     conn = db.get_connection()
     try:
         _get_war_row(conn, war_id)
+        sent = body.model_dump(exclude_unset=True)
         fields, values = [], []
         for field in ("cache_sell_price", "leadership_cut_pct", "outside_pay_rate_pct"):
-            value = getattr(body, field)
-            if value is not None:
+            if sent.get(field) is not None:
                 fields.append(f"{field} = ?")
-                values.append(value)
+                values.append(sent[field])
+        # is_termed/termed_at can be explicitly cleared to null, so check "was it sent"
+        # rather than "is it not None" - unlike the numeric settings above.
+        if "is_termed" in sent:
+            fields.append("is_termed = ?")
+            values.append(1 if sent["is_termed"] else 0)
+        if "termed_at" in sent:
+            fields.append("termed_at = ?")
+            values.append(sent["termed_at"])
         if fields:
             values.append(war_id)
             conn.execute(f"UPDATE wars SET {', '.join(fields)} WHERE id = ?", values)

@@ -60,8 +60,21 @@ def sync_war(client: TornClient, conn, faction_id: int, ranked_war_id: int) -> i
     xanax_used = armory.count_item_usage(client, "Xanax", xanax_window_start, end)
 
     # Respect lost is every incoming attack during the war itself (not the xanax window
-    # above) - it's tied to the war's own fighting, whoever the attacker turns out to be.
-    respect_lost = stats.compute_respect_lost(client, start, end)
+    # above), up to whichever comes first: the war's own end, or the point it was termed
+    # (is_termed/termed_at are manual settings, preserved across resyncs below). A war
+    # marked termed with no specific time is treated as termed at its own start - i.e.
+    # no respect lost counted at all.
+    existing_war = conn.execute(
+        "SELECT is_termed, termed_at FROM wars WHERE id = ?", (ranked_war_id,)
+    ).fetchone()
+    is_termed = bool(existing_war["is_termed"]) if existing_war else False
+    termed_at = existing_war["termed_at"] if existing_war else None
+
+    if is_termed:
+        respect_lost_end = min(end, termed_at) if termed_at else start
+    else:
+        respect_lost_end = end
+    respect_lost = stats.compute_respect_lost(client, start, respect_lost_end) if respect_lost_end > start else {}
 
     member_ids = (
         set(inside_hits) | set(outside_hits) | set(assist_hits) | set(positions)
