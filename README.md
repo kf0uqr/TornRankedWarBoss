@@ -46,6 +46,12 @@ On first run, go to the **Settings** tab and enter your Torn API key and faction
 
 You can add more API keys in Settings to pool their rate limits together - each key needs at least **Limited** access, and should belong to a member of *this* faction (some endpoints Torn scopes to "my faction" rather than an explicit faction ID, so a key from a different faction would return the wrong data).
 
+## Moving to another machine
+
+Settings → **Backup / Transfer** exports everything on the Settings page - faction ID, Torn API keys, Discord bot token, allowed Discord users, FFScouter key, rank pay rates, armory targets - to a JSON file. It contains real, unmasked secrets, so treat the downloaded file like any other credentials backup (don't post it anywhere, store it somewhere private). War history and the travel/activity observation logs used to refine `/current_war`'s estimates aren't included - only config and credentials.
+
+Import the same file on the new machine's Settings page to restore everything in one go. It's an upsert, not a wipe-and-replace: matching entries (by API key, Discord user ID, rank name, or armory item) get updated in place, so it's safe to import onto a machine that already has some settings, or to re-import the same file more than once.
+
 ## Payroll helper (optional)
 
 1. Install [Tampermonkey](https://www.tampermonkey.net/) in your browser.

@@ -1,8 +1,10 @@
+import time
+
 import httpx
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 
-from backend import db
+from backend import armory, db
 from backend.torn_api import TornAPIError, TornClient
 
 router = APIRouter(prefix="/api/settings", tags=["settings"])
@@ -56,6 +58,45 @@ class DiscordWarStatusIn(BaseModel):
 
 class FFScouterApiKeyIn(BaseModel):
     api_key: str
+
+
+class ExportedApiKey(BaseModel):
+    api_key: str
+    label: str | None = None
+
+
+class ExportedAllowedUser(BaseModel):
+    discord_user_id: str
+    label: str | None = None
+    torn_player_id: int | None = None
+    is_leadership: bool = False
+
+
+class ExportedRankPayRate(BaseModel):
+    rank_name: str
+    pay_rate_pct: float
+
+
+class ExportedArmoryTarget(BaseModel):
+    item_id: int
+    item_name: str
+    armory_category: str
+    torn_item_category: str
+    target_qty: int
+
+
+class SettingsExport(BaseModel):
+    version: int = 1
+    exported_at: int | None = None
+    faction_id: int | None = None
+    api_keys: list[ExportedApiKey] = []
+    discord_bot_token: str | None = None
+    discord_guild_id: str | None = None
+    discord_alert_channel_id: str | None = None
+    discord_allowed_users: list[ExportedAllowedUser] = []
+    ffscouter_api_key: str | None = None
+    rank_pay_rates: list[ExportedRankPayRate] = []
+    armory_targets: list[ExportedArmoryTarget] = []
 
 
 def _mask(value: str) -> str:
@@ -261,3 +302,75 @@ def delete_rank_pay_rate(rank_name: str):
     finally:
         conn.close()
     return list_rank_pay_rates()
+
+
+@router.get("/export", response_model=SettingsExport)
+def export_settings():
+    """Everything under the Settings tab - config and credentials, not war
+    history or accumulated observation logs - in one file for moving to
+    another machine. Contains real, unmasked secrets (Torn/Discord/FFScouter
+    keys); handle the downloaded file like any other credentials backup."""
+    conn = db.get_connection()
+    try:
+        armory_targets = armory.get_armory_targets(conn)
+    finally:
+        conn.close()
+
+    return {
+        "version": 1,
+        "exported_at": int(time.time()),
+        "faction_id": db.get_faction_id(),
+        "api_keys": [{"api_key": r["api_key"], "label": r["label"]} for r in db.list_api_keys()],
+        "discord_bot_token": db.get_discord_bot_token(),
+        "discord_guild_id": db.get_setting("discord_guild_id"),
+        "discord_alert_channel_id": db.get_setting("discord_alert_channel_id"),
+        "discord_allowed_users": db.list_discord_allowed_users(),
+        "ffscouter_api_key": db.get_ffscouter_api_key(),
+        "rank_pay_rates": list_rank_pay_rates(),
+        "armory_targets": armory_targets,
+    }
+
+
+@router.post("/import")
+def import_settings(body: SettingsExport):
+    """Upserts everything from an export - safe to run on a fresh install or
+    an existing one (existing rank pay rates / armory targets / API keys /
+    allowed users are matched by their natural key and updated in place, not
+    duplicated)."""
+    if body.faction_id is not None:
+        db.set_setting("faction_id", str(body.faction_id))
+    for key in body.api_keys:
+        db.add_api_key(key.api_key, key.label)
+    if body.discord_bot_token is not None:
+        db.set_discord_bot_token(body.discord_bot_token)
+    if body.discord_guild_id is not None:
+        db.set_setting("discord_guild_id", body.discord_guild_id)
+    if body.discord_alert_channel_id is not None:
+        db.set_setting("discord_alert_channel_id", body.discord_alert_channel_id)
+    for user in body.discord_allowed_users:
+        db.add_discord_allowed_user(user.discord_user_id, user.label, user.torn_player_id, user.is_leadership)
+    if body.ffscouter_api_key is not None:
+        db.set_ffscouter_api_key(body.ffscouter_api_key)
+
+    conn = db.get_connection()
+    try:
+        for rate in body.rank_pay_rates:
+            conn.execute(
+                "INSERT INTO rank_pay_rates (rank_name, pay_rate_pct) VALUES (?, ?) "
+                "ON CONFLICT(rank_name) DO UPDATE SET pay_rate_pct = excluded.pay_rate_pct",
+                (rate.rank_name, rate.pay_rate_pct),
+            )
+        conn.commit()
+    finally:
+        conn.close()
+
+    conn = db.get_connection()
+    try:
+        for target in body.armory_targets:
+            armory.add_armory_target(
+                conn, target.item_id, target.item_name, target.armory_category, target.torn_item_category, target.target_qty
+            )
+    finally:
+        conn.close()
+
+    return get_settings()

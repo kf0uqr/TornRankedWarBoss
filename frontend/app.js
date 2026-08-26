@@ -462,6 +462,23 @@ async function renderSettings() {
         <button class="action" id="add-rank">Add / Update</button>
       </div>
     </div>
+
+    <div class="card">
+      <h2>Backup / Transfer</h2>
+      <p class="muted">
+        Exports everything on this Settings page - faction ID, Torn API keys, Discord bot token, allowed users,
+        FFScouter key, rank pay rates, and armory targets - to a JSON file, for moving to another machine.
+        <strong>The file contains real, unmasked secrets</strong> (your Torn API keys and Discord bot token) -
+        handle it like any other credentials backup: don't post it anywhere, and store it somewhere private.
+        War history and accumulated observation logs (travel/activity) aren't included.
+      </p>
+      <div class="row">
+        <button class="action" id="export-settings">Export Settings</button>
+        <input type="file" id="import-settings-file" accept="application/json" style="display:none" />
+        <button class="action" id="import-settings">Import Settings</button>
+      </div>
+      <p class="muted">Importing is safe to run more than once or onto an existing setup - matching entries (by API key, Discord user, rank, or armory item) are updated in place rather than duplicated.</p>
+    </div>
   `;
 
   const tbody = root.querySelector("#rank-rows");
@@ -498,6 +515,37 @@ async function renderSettings() {
     if (!name) return;
     await api("/api/settings/rank-pay-rates", { method: "POST", body: JSON.stringify({ rank_name: name, pay_rate_pct: pct }) });
     renderSettings();
+  });
+
+  root.querySelector("#export-settings").addEventListener("click", async () => {
+    const data = await api("/api/settings/export");
+    const blob = new Blob([JSON.stringify(data, null, 2)], { type: "application/json" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    const date = new Date().toISOString().slice(0, 10);
+    a.href = url;
+    a.download = `torn-war-boss-settings-${date}.json`;
+    a.click();
+    URL.revokeObjectURL(url);
+    toast("Settings exported - keep that file private, it has your real API keys/token in it");
+  });
+
+  root.querySelector("#import-settings").addEventListener("click", () => {
+    root.querySelector("#import-settings-file").click();
+  });
+
+  root.querySelector("#import-settings-file").addEventListener("change", async (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+    try {
+      const data = JSON.parse(await file.text());
+      await api("/api/settings/import", { method: "POST", body: JSON.stringify(data) });
+      toast("Settings imported");
+      renderSettings();
+    } catch (err) {
+      toast(`Import failed: ${err.message}`, true);
+    }
+    e.target.value = "";
   });
 
   root.querySelector("#save-faction-id").addEventListener("click", async () => {
