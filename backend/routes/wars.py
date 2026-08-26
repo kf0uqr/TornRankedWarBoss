@@ -24,6 +24,7 @@ class ExpenseLineIn(BaseModel):
 class MemberUpdateIn(BaseModel):
     fine_waived: bool | None = None
     pay_rank: str | None = None
+    paid: bool | None = None
 
 
 @router.get("/available")
@@ -180,6 +181,7 @@ def get_war(war_id: int):
                     "position": member_meta.get(m.member_id, {}).get("position"),
                     "level": member_meta.get(m.member_id, {}).get("level"),
                     "respect": member_meta.get(m.member_id, {}).get("respect"),
+                    "paid": bool(member_meta.get(m.member_id, {}).get("paid")),
                 }
                 for m in result.members
             ],
@@ -283,6 +285,9 @@ def update_member(war_id: int, member_id: int, body: MemberUpdateIn):
         if body.pay_rank is not None:
             fields.append("pay_rank = ?")
             values.append(body.pay_rank)
+        if body.paid is not None:
+            fields.append("paid = ?")
+            values.append(1 if body.paid else 0)
         if fields:
             values.extend([war_id, member_id])
             conn.execute(

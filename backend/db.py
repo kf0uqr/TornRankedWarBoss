@@ -82,6 +82,7 @@ CREATE TABLE IF NOT EXISTS war_members (
     pay_rank TEXT,
     xanax_used INTEGER NOT NULL DEFAULT 0,
     fine_waived INTEGER NOT NULL DEFAULT 0,
+    paid INTEGER NOT NULL DEFAULT 0,
     PRIMARY KEY (war_id, member_id)
 );
 
@@ -124,6 +125,8 @@ def _post_migrate(conn, had_legacy_fine: bool):
         conn.execute("ALTER TABLE war_members ADD COLUMN xanax_used INTEGER NOT NULL DEFAULT 0")
     if "respect_lost" not in columns:
         conn.execute("ALTER TABLE war_members ADD COLUMN respect_lost REAL NOT NULL DEFAULT 0")
+    if "paid" not in columns:
+        conn.execute("ALTER TABLE war_members ADD COLUMN paid INTEGER NOT NULL DEFAULT 0")
 
     war_columns = {row["name"] for row in conn.execute("PRAGMA table_info(wars)")}
     if "is_termed" not in war_columns:

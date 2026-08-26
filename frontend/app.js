@@ -110,7 +110,7 @@ function renderStatsTable(members) {
 }
 
 const PAYSHEET_HEADERS = [
-  "Name", "Inside", "Outside", "Assists", "Xanax Used", "Rank", "Fine", "Paid Back", "Gross Pay", "Bonus", "Final Pay",
+  "Name", "Inside", "Outside", "Assists", "Xanax Used", "Rank", "Fine", "Paid Back", "Gross Pay", "Bonus", "Final Pay", "Paid",
 ];
 
 function paysheetRowCells(m) {
@@ -127,6 +127,7 @@ function paysheetRowCells(m) {
     money(m.gross_pay),
     money(bonus),
     { text: money(m.final_pay), color: m.final_pay < 0 ? IMAGE_COLORS.bad : undefined },
+    m.paid ? "Yes" : "No",
   ];
 }
 
@@ -148,6 +149,7 @@ function paysheetTotalsCells(members) {
     money(sumBy(members, (m) => m.gross_pay)),
     money(sumBy(members, (m) => m.flat_bonus + m.leadership_cut_share)),
     { text: money(totalFinalPay), color: totalFinalPay < 0 ? IMAGE_COLORS.bad : undefined },
+    "",
   ];
 }
 
@@ -564,7 +566,7 @@ async function renderWarDetail(warId) {
         <thead>
           <tr>
             <th>Name</th><th>Inside</th><th>Outside</th><th>Assists</th><th>Xanax Used</th>
-            <th>Rank</th><th>Fine</th><th>Paid Back</th><th>Gross Pay</th><th>Bonus</th><th>Final Pay</th>
+            <th>Rank</th><th>Fine</th><th>Paid Back</th><th>Gross Pay</th><th>Bonus</th><th>Final Pay</th><th>Paid</th>
           </tr>
         </thead>
         <tbody id="member-rows"></tbody>
@@ -687,6 +689,7 @@ async function renderWarDetail(warId) {
       <td>${money(m.gross_pay)}</td>
       <td title="${bonusTitle}">${money(bonus)}</td>
       <td><strong class="${m.final_pay < 0 ? "negative" : ""}">${money(m.final_pay)}</strong></td>
+      <td><input type="checkbox" class="member-paid" data-member="${m.member_id}" ${m.paid ? "checked" : ""} /></td>
     `;
     memberBody.appendChild(tr);
   });
@@ -711,6 +714,16 @@ async function renderWarDetail(warId) {
       await api(`/api/wars/${warId}/members/${cb.dataset.member}`, {
         method: "PATCH",
         body: JSON.stringify({ fine_waived: cb.checked }),
+      });
+      renderWarDetail(warId);
+    });
+  });
+
+  memberBody.querySelectorAll(".member-paid").forEach((cb) => {
+    cb.addEventListener("change", async () => {
+      await api(`/api/wars/${warId}/members/${cb.dataset.member}`, {
+        method: "PATCH",
+        body: JSON.stringify({ paid: cb.checked }),
       });
       renderWarDetail(warId);
     });
