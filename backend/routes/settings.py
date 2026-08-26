@@ -20,8 +20,21 @@ class ApiKeyIn(BaseModel):
     label: str | None = None
 
 
-def _mask(key: str) -> str:
-    return "•" * max(len(key) - 4, 0) + key[-4:] if len(key) > 4 else "•" * len(key)
+class DiscordBotTokenIn(BaseModel):
+    token: str
+
+
+class DiscordGuildIdIn(BaseModel):
+    guild_id: str
+
+
+class DiscordAllowedUserIn(BaseModel):
+    discord_user_id: str
+    label: str | None = None
+
+
+def _mask(value: str) -> str:
+    return "•" * max(len(value) - 4, 0) + value[-4:] if len(value) > 4 else "•" * len(value)
 
 
 def _api_keys_out():
@@ -31,11 +44,19 @@ def _api_keys_out():
     ]
 
 
+def _discord_allowed_users_out():
+    return db.list_discord_allowed_users()
+
+
 @router.get("")
 def get_settings():
+    token = db.get_discord_bot_token()
     return {
         "api_key_count": len(db.get_api_keys()),
         "faction_id": db.get_faction_id(),
+        "has_discord_bot_token": bool(token),
+        "discord_bot_token_masked": _mask(token) if token else None,
+        "discord_guild_id": db.get_setting("discord_guild_id"),
     }
 
 
@@ -61,6 +82,35 @@ def add_api_key(body: ApiKeyIn):
 def delete_api_key(key_id: int):
     db.remove_api_key(key_id)
     return _api_keys_out()
+
+
+@router.post("/discord-bot-token")
+def set_discord_bot_token(body: DiscordBotTokenIn):
+    db.set_discord_bot_token(body.token.strip())
+    return get_settings()
+
+
+@router.post("/discord-guild-id")
+def set_discord_guild_id(body: DiscordGuildIdIn):
+    db.set_setting("discord_guild_id", body.guild_id.strip())
+    return get_settings()
+
+
+@router.get("/discord-allowed-users")
+def list_discord_allowed_users():
+    return _discord_allowed_users_out()
+
+
+@router.post("/discord-allowed-users")
+def add_discord_allowed_user(body: DiscordAllowedUserIn):
+    db.add_discord_allowed_user(body.discord_user_id.strip(), body.label.strip() if body.label else None)
+    return _discord_allowed_users_out()
+
+
+@router.delete("/discord-allowed-users/{entry_id}")
+def delete_discord_allowed_user(entry_id: int):
+    db.remove_discord_allowed_user(entry_id)
+    return _discord_allowed_users_out()
 
 
 @router.get("/rank-pay-rates")

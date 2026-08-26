@@ -334,6 +334,7 @@ async function renderSettings() {
   const settings = await api("/api/settings");
   const rates = await api("/api/settings/rank-pay-rates");
   const apiKeys = await api("/api/settings/api-keys");
+  const discordUsers = await api("/api/settings/discord-allowed-users");
 
   root.innerHTML = `
     <div class="card">
@@ -373,6 +374,50 @@ async function renderSettings() {
         <button class="action" id="add-api-key">Add Key</button>
       </div>
       <p class="muted">Stored locally in the sqlite db on this machine only, sent only to api.torn.com.</p>
+    </div>
+
+    <div class="card">
+      <h2>Discord Bot</h2>
+      <p class="muted">
+        Lets leadership run read-only commands (<code>/wars</code>, <code>/paysheet</code>, <code>/stats</code>,
+        <code>/career</code>, <code>/armory</code>) from Discord. The bot only makes an outbound connection to
+        Discord and talks to this app over localhost - no port forwarding or router changes needed. Runs as its
+        own process: <code>./start-bot.sh</code>. Create a bot application at
+        <a href="https://discord.com/developers/applications" target="_blank" rel="noopener">discord.com/developers/applications</a>
+        to get a token.
+      </p>
+      <div class="row">
+        <label>Bot Token<br/><input type="password" id="discord-token" placeholder="${settings.has_discord_bot_token ? settings.discord_bot_token_masked + " (already set)" : "paste bot token"}" style="width:280px" /></label>
+        <button class="action" id="save-discord-token" style="align-self:flex-end">Save Token</button>
+      </div>
+      <div class="row" style="margin-top:10px">
+        <label>Server (Guild) ID <span class="muted">(optional - instant command sync)</span><br/><input id="discord-guild-id" value="${settings.discord_guild_id ?? ""}" style="width:200px" /></label>
+        <button class="action" id="save-discord-guild" style="align-self:flex-end">Save</button>
+      </div>
+
+      <h3 style="margin-top:16px">Allowed Discord Users</h3>
+      <p class="muted">Only these Discord accounts can use the bot's commands - everyone else is ignored.</p>
+      <table>
+        <thead><tr><th>Label</th><th>Discord User ID</th><th></th></tr></thead>
+        <tbody id="discord-user-rows">
+          ${discordUsers
+            .map(
+              (u) => `
+            <tr>
+              <td>${u.label || "-"}</td>
+              <td class="muted">${u.discord_user_id}</td>
+              <td><button class="danger" data-del-discord-user="${u.id}">Remove</button></td>
+            </tr>`
+            )
+            .join("") || `<tr><td colspan="3" class="muted">No one added yet.</td></tr>`}
+        </tbody>
+      </table>
+      <div class="row" style="margin-top:10px">
+        <input id="new-discord-user-id" placeholder="Discord User ID" style="width:180px" />
+        <input id="new-discord-user-label" placeholder="Label (e.g. a name)" style="width:200px" />
+        <button class="action" id="add-discord-user">Add</button>
+      </div>
+      <p class="muted">Turn on Discord's Developer Mode (Settings → Advanced) to right-click a user and "Copy User ID".</p>
     </div>
 
     <div class="card">
@@ -446,6 +491,40 @@ async function renderSettings() {
   root.querySelectorAll("[data-del-key]").forEach((btn) => {
     btn.addEventListener("click", async () => {
       await api(`/api/settings/api-keys/${btn.dataset.delKey}`, { method: "DELETE" });
+      renderSettings();
+    });
+  });
+
+  root.querySelector("#save-discord-token").addEventListener("click", async () => {
+    const token = root.querySelector("#discord-token").value.trim();
+    if (!token) return;
+    await api("/api/settings/discord-bot-token", { method: "POST", body: JSON.stringify({ token }) });
+    toast("Discord bot token saved - (re)start the bot to pick it up");
+    renderSettings();
+  });
+
+  root.querySelector("#save-discord-guild").addEventListener("click", async () => {
+    const guildId = root.querySelector("#discord-guild-id").value.trim();
+    await api("/api/settings/discord-guild-id", { method: "POST", body: JSON.stringify({ guild_id: guildId }) });
+    toast("Saved - (re)start the bot to pick it up");
+    renderSettings();
+  });
+
+  root.querySelector("#add-discord-user").addEventListener("click", async () => {
+    const id = root.querySelector("#new-discord-user-id").value.trim();
+    const label = root.querySelector("#new-discord-user-label").value.trim();
+    if (!id) return;
+    await api("/api/settings/discord-allowed-users", {
+      method: "POST",
+      body: JSON.stringify({ discord_user_id: id, label: label || null }),
+    });
+    toast("Discord user added");
+    renderSettings();
+  });
+
+  root.querySelectorAll("[data-del-discord-user]").forEach((btn) => {
+    btn.addEventListener("click", async () => {
+      await api(`/api/settings/discord-allowed-users/${btn.dataset.delDiscordUser}`, { method: "DELETE" });
       renderSettings();
     });
   });

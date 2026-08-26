@@ -54,6 +54,13 @@ CREATE TABLE IF NOT EXISTS api_keys (
     added_at INTEGER
 );
 
+CREATE TABLE IF NOT EXISTS discord_allowed_users (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    discord_user_id TEXT NOT NULL UNIQUE,
+    label TEXT,
+    added_at INTEGER
+);
+
 CREATE TABLE IF NOT EXISTS armory_targets (
     item_id INTEGER PRIMARY KEY,
     item_name TEXT NOT NULL,
@@ -282,6 +289,55 @@ def remove_api_key(key_id: int) -> None:
     conn = get_connection()
     try:
         conn.execute("DELETE FROM api_keys WHERE id = ?", (key_id,))
+        conn.commit()
+    finally:
+        conn.close()
+
+
+def get_discord_bot_token() -> str | None:
+    return get_setting("discord_bot_token")
+
+
+def set_discord_bot_token(token: str) -> None:
+    set_setting("discord_bot_token", token)
+
+
+def list_discord_allowed_users() -> list[dict]:
+    conn = get_connection()
+    try:
+        rows = conn.execute(
+            "SELECT id, discord_user_id, label, added_at FROM discord_allowed_users ORDER BY id"
+        ).fetchall()
+        return [dict(r) for r in rows]
+    finally:
+        conn.close()
+
+
+def get_discord_allowed_user_ids() -> set[str]:
+    conn = get_connection()
+    try:
+        rows = conn.execute("SELECT discord_user_id FROM discord_allowed_users").fetchall()
+        return {r["discord_user_id"] for r in rows}
+    finally:
+        conn.close()
+
+
+def add_discord_allowed_user(discord_user_id: str, label: str | None) -> None:
+    conn = get_connection()
+    try:
+        conn.execute(
+            "INSERT OR IGNORE INTO discord_allowed_users (discord_user_id, label, added_at) VALUES (?, ?, ?)",
+            (discord_user_id, label, int(time.time())),
+        )
+        conn.commit()
+    finally:
+        conn.close()
+
+
+def remove_discord_allowed_user(entry_id: int) -> None:
+    conn = get_connection()
+    try:
+        conn.execute("DELETE FROM discord_allowed_users WHERE id = ?", (entry_id,))
         conn.commit()
     finally:
         conn.close()
