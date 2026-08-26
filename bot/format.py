@@ -3,6 +3,8 @@ frontend/app.js's paysheetRowCells/statsRowCells etc. Kept in sync by hand,
 same caveat as bot/render.py.
 """
 
+import re
+
 from bot.render import COLORS
 
 PAYSHEET_HEADERS = [
@@ -36,6 +38,61 @@ STATUS_COLOR_MAP = {
     "yellow": COLORS["warn"],
     "blue": COLORS["accent"],
 }
+
+COUNTRY_ABBR = {
+    "Torn": "Torn",
+    "Mexico": "MEX",
+    "Cayman Islands": "CAY",
+    "Canada": "CAN",
+    "Hawaii": "HAW",
+    "United Kingdom": "UK",
+    "Argentina": "ARG",
+    "Switzerland": "SWI",
+    "Japan": "JPN",
+    "China": "CHN",
+    "UAE": "UAE",
+    "United Arab Emirates": "UAE",
+    "South Africa": "SA",
+}
+
+_TRAVEL_RE = re.compile(r"^Traveling from (.+) to (.+)$")
+_TRAVEL_TO_RE = re.compile(r"^Traveling to (.+)$")
+_IN_COUNTRY_RE = re.compile(r"^In (.+)$")
+
+_TIME_UNIT_ABBR = {
+    "second": "s", "seconds": "s",
+    "minute": "m", "minutes": "m",
+    "hour": "h", "hours": "h",
+    "day": "d", "days": "d",
+    "week": "w", "weeks": "w",
+    "month": "mo", "months": "mo",
+    "year": "y", "years": "y",
+}
+_TIME_RE = re.compile(r"(\d+)\s+(seconds?|minutes?|hours?|days?|weeks?|months?|years?)")
+
+
+def _abbr_country(name: str) -> str:
+    return COUNTRY_ABBR.get(name.strip(), name.strip())
+
+
+def abbreviate_status(text: str) -> str:
+    """Shortens Torn's own travel wording - "Traveling from Torn to South
+    Africa" -> "Torn -> SA" - so it fits the table without truncating."""
+    m = _TRAVEL_RE.match(text)
+    if m:
+        return f"{_abbr_country(m.group(1))} → {_abbr_country(m.group(2))}"
+    m = _TRAVEL_TO_RE.match(text)
+    if m:
+        return f"→ {_abbr_country(m.group(1))}"
+    m = _IN_COUNTRY_RE.match(text)
+    if m:
+        return f"In {_abbr_country(m.group(1))}"
+    return text
+
+
+def abbreviate_relative(text: str) -> str:
+    """"27 minutes ago" -> "27m ago", "1 day ago" -> "1d ago", etc."""
+    return _TIME_RE.sub(lambda m: f"{m.group(1)}{_TIME_UNIT_ABBR[m.group(2)]}", text)
 
 
 def money(n) -> str:
@@ -131,14 +188,14 @@ def war_status_row(m) -> list:
     status = m["status"]
     # Torn's own description already reads e.g. "In hospital for 14 mins" -
     # no need to compute our own duration on top of it.
-    status_text = status["description"] or status["state"]
+    status_text = abbreviate_status(status["description"] or status["state"])
     la = m["last_action"]
     return [
         m["name"],
         str(m["level"]),
         m.get("bs_estimate_human") or "-",
         {"text": status_text, "color": STATUS_COLOR_MAP.get(status.get("color"), COLORS["text"])},
-        la["relative"],
+        abbreviate_relative(la["relative"]),
         m.get("position") or "-",
         "Yes" if m.get("is_on_wall") else "No",
         "Yes" if m.get("is_revivable") else "No",
