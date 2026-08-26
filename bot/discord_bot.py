@@ -306,6 +306,13 @@ def build_activity_heatmap_message(data: dict, activity_estimates: dict) -> tupl
 
 @bot.event
 async def on_ready():
+    # Guild-scoped commands ONLY work inside that one server - Discord never
+    # makes them available in DMs, no matter what. /add_api_key needs to run
+    # in a DM, so a global sync is required regardless of guild_id; the guild
+    # sync (when configured) is purely a speed-up for the *rest* of the
+    # commands to show up instantly in that server instead of waiting up to
+    # an hour, and is skipped entirely if it fails rather than treated as a
+    # fallback-worthy error, since the global sync below still covers everyone.
     guild_id = db.get_setting("discord_guild_id")
     synced_where = "globally (can take up to an hour to show up)"
     if guild_id:
@@ -313,7 +320,7 @@ async def on_ready():
         bot.tree.copy_global_to(guild=guild)
         try:
             await bot.tree.sync(guild=guild)
-            synced_where = f"to guild {guild_id}"
+            synced_where = f"to guild {guild_id} (instant) and globally (can take up to an hour, needed for DM commands like /add_api_key)"
         except discord.Forbidden:
             # Almost always means the bot was invited without the
             # applications.commands OAuth2 scope, or the guild ID doesn't
@@ -321,13 +328,11 @@ async def on_ready():
             # `bot` and `applications.commands` checked in the URL Generator.
             print(
                 f"Could not sync commands to guild {guild_id} (403 Forbidden). "
-                "Falling back to a global sync. This usually means the bot was invited "
+                "Falling back to a global-only sync. This usually means the bot was invited "
                 "without the 'applications.commands' scope, or the guild ID is wrong - "
                 "see the README's Discord bot setup steps."
             )
-            await bot.tree.sync()
-    else:
-        await bot.tree.sync()
+    await bot.tree.sync()
     print(f"Logged in as {bot.user} - commands synced {synced_where}")
     if not refresh_war_status.is_running():
         refresh_war_status.start()
