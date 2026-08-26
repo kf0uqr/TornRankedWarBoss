@@ -26,7 +26,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 from backend import db  # noqa: E402
 from bot import decay  # noqa: E402
 from bot import format as fmt  # noqa: E402
-from bot.render import render_tables, render_tables_columns  # noqa: E402
+from bot.render import render_tables  # noqa: E402
 
 APP_BASE_URL = "http://localhost:8787"
 WAR_STATUS_REFRESH_MINUTES = 5
@@ -159,11 +159,23 @@ def _add_decay_fields(embed: discord.Embed, war: dict) -> None:
     embed.add_field(name="Max Payout", value=payout_text)
 
 
-def build_war_status_message(data: dict) -> tuple[discord.Embed, discord.File]:
+def _auto_update_description() -> str:
+    # Embed footers don't render Discord's timestamp markup (plain text only),
+    # so the live "auto-updates in" countdown has to live in the description
+    # instead - next_iteration is None only in the brief window before the
+    # refresh loop's first tick, hence the static fallback.
+    next_run = refresh_war_status.next_iteration
+    if next_run:
+        return f"Auto-updates <t:{int(next_run.timestamp())}:R>"
+    return f"Auto-updates every {WAR_STATUS_REFRESH_MINUTES} min while this war is active"
+
+
+def build_enemy_status_message(data: dict) -> tuple[discord.Embed, discord.File]:
     war = data["war"]
     members = sorted(data["members"], key=fmt.war_status_sort_key)
 
     embed = discord.Embed(title=f"Current War - vs {war['opponent_name']}", color=0x5DA9FF)
+    embed.description = _auto_update_description()
     embed.add_field(name="Score", value=f"{war['own_score']} - {war['opponent_score']} (target {war['target']})")
     okay_count = sum(1 for m in members if m["status"]["state"] == "Okay")
     embed.add_field(name="Attackable Now", value=f"{okay_count} / {len(members)}")
@@ -186,31 +198,24 @@ def build_war_status_message(data: dict) -> tuple[discord.Embed, discord.File]:
             lines.append(f"+{len(hospitalized) - 20} more")
         embed.add_field(name="In Hospital", value="\n".join(lines), inline=False)
 
-    # Embed footers don't render Discord's timestamp markup (plain text only),
-    # so the live "auto-updates in" countdown has to live in the description
-    # instead - next_iteration is None only in the brief window before the
-    # refresh loop's first tick, hence the static fallback.
-    next_run = refresh_war_status.next_iteration
-    if next_run:
-        embed.description = f"Auto-updates <t:{int(next_run.timestamp())}:R>"
-    else:
-        embed.description = f"Auto-updates every {WAR_STATUS_REFRESH_MINUTES} min while this war is active"
     embed.set_footer(text="Decay/payout numbers are community-observed estimates, not official Torn data.")
 
-    enemy_rows = [fmt.war_status_row(m) for m in members]
+    rows = [fmt.war_status_row(m) for m in members]
+    png = render_tables(f"Enemy Roster - {war['opponent_name']}", [{"heading": None, "headers": fmt.WAR_STATUS_HEADERS, "rows": rows}])
+    return embed, image_file(embed, png, "enemy_roster.png")
+
+
+def build_own_status_message(data: dict) -> tuple[discord.Embed, discord.File]:
+    war = data["war"]
+    embed = discord.Embed(title="Our Roster", color=0x5DA9FF)
+    embed.description = _auto_update_description()
+    embed.add_field(name="Score", value=f"{war['own_score']} - {war['opponent_score']} (target {war['target']})")
+    embed.set_footer(text="Hits/respect are computed live from the attack log - treat them as an estimate.")
+
     own_members = sorted(data.get("own_members", []), key=fmt.own_war_sort_key)
-    own_rows = [fmt.own_war_row(m) for m in own_members]
-    # Side-by-side, not stacked - a stacked two-roster image comes out tall and
-    # narrow, and Discord's embed image scaling shrinks a tall image's apparent
-    # width a lot more than a wide-and-short one with the same content.
-    png = render_tables_columns(
-        f"Current War - vs {war['opponent_name']}",
-        [
-            {"heading": "Enemy Roster", "headers": fmt.WAR_STATUS_HEADERS, "rows": enemy_rows},
-            {"heading": "Our Roster", "headers": fmt.OWN_WAR_HEADERS, "rows": own_rows},
-        ],
-    )
-    return embed, image_file(embed, png, "war_status.png")
+    rows = [fmt.own_war_row(m) for m in own_members]
+    png = render_tables("Our Roster", [{"heading": None, "headers": fmt.OWN_WAR_HEADERS, "rows": rows}])
+    return embed, image_file(embed, png, "own_roster.png")
 
 
 @bot.event
@@ -259,7 +264,7 @@ async def wars_command(interaction: discord.Interaction):
     await interaction.followup.send(table_block(rows, header=f"{'War ID':<10} Opponent"))
 
 
-@bot.tree.command(name="current_war", description="Post a live-updating status board for the current ranked war's enemy roster")
+@bot.tree.command(name="current_war", description="Post live-updating status boards for the current ranked war")
 async def current_war_command(interaction: discord.Interaction):
     if not await ensure_allowed(interaction):
         return
@@ -276,14 +281,24 @@ async def current_war_command(interaction: discord.Interaction):
         await interaction.followup.send("No active ranked war right now.")
         return
 
-    embed, file = build_war_status_message(data)
-    message = await interaction.channel.send(embed=embed, file=file)
+    # Two separate posts, not one combined image - each renders as large as
+    # Discord will show it, instead of both being squeezed into a shared image.
+    enemy_embed, enemy_file = build_enemy_status_message(data)
+    enemy_message = await interaction.channel.send(embed=enemy_embed, file=enemy_file)
+    own_embed, own_file = build_own_status_message(data)
+    own_message = await interaction.channel.send(embed=own_embed, file=own_file)
+
     await api_post(
         "/api/settings/discord-war-status",
-        {"war_id": data["war"]["id"], "channel_id": str(message.channel.id), "message_id": str(message.id)},
+        {
+            "war_id": data["war"]["id"],
+            "channel_id": str(enemy_message.channel.id),
+            "enemy_message_id": str(enemy_message.id),
+            "own_message_id": str(own_message.id),
+        },
     )
     await interaction.followup.send(
-        f"Posted - I'll refresh it every {WAR_STATUS_REFRESH_MINUTES} minutes while this war is active.",
+        f"Posted - I'll refresh both every {WAR_STATUS_REFRESH_MINUTES} minutes while this war is active.",
         ephemeral=True,
     )
 
@@ -401,16 +416,17 @@ async def armory_command(interaction: discord.Interaction):
 @tasks.loop(minutes=WAR_STATUS_REFRESH_MINUTES)
 async def refresh_war_status():
     ref = await api_get("/api/settings/discord-war-status")
-    if not ref.get("message_id"):
+    if not ref.get("enemy_message_id") or not ref.get("own_message_id"):
         return
 
     channel_id = int(ref["channel_id"])
-    message_id = int(ref["message_id"])
     try:
         channel = bot.get_channel(channel_id) or await bot.fetch_channel(channel_id)
-        message = await channel.fetch_message(message_id)
+        enemy_message = await channel.fetch_message(int(ref["enemy_message_id"]))
+        own_message = await channel.fetch_message(int(ref["own_message_id"]))
     except (discord.NotFound, discord.Forbidden):
-        # Message or channel is gone - stop chasing it until /current_war is run again.
+        # A message or the channel is gone - stop chasing it until /current_war
+        # is run again, rather than editing just whichever half still exists.
         await api_delete("/api/settings/discord-war-status")
         return
 
@@ -422,12 +438,16 @@ async def refresh_war_status():
 
     war = data["war"]
     if war is None or war["id"] != ref["war_id"]:
-        await message.edit(content="*This war has ended - the status board is no longer being updated.*")
+        ended_note = "*This war has ended - this board is no longer being updated.*"
+        await enemy_message.edit(content=ended_note)
+        await own_message.edit(content=ended_note)
         await api_delete("/api/settings/discord-war-status")
         return
 
-    embed, file = build_war_status_message(data)
-    await message.edit(embed=embed, attachments=[file])
+    enemy_embed, enemy_file = build_enemy_status_message(data)
+    await enemy_message.edit(embed=enemy_embed, attachments=[enemy_file])
+    own_embed, own_file = build_own_status_message(data)
+    await own_message.edit(embed=own_embed, attachments=[own_file])
 
 
 @refresh_war_status.before_loop

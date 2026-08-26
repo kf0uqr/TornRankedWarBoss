@@ -36,7 +36,8 @@ class DiscordAllowedUserIn(BaseModel):
 class DiscordWarStatusIn(BaseModel):
     war_id: int
     channel_id: str
-    message_id: str
+    enemy_message_id: str
+    own_message_id: str
 
 
 class FFScouterApiKeyIn(BaseModel):
@@ -138,7 +139,8 @@ def get_discord_war_status():
     return {
         "war_id": int(war_id) if war_id else None,
         "channel_id": db.get_setting("discord_war_status_channel_id"),
-        "message_id": db.get_setting("discord_war_status_message_id"),
+        "enemy_message_id": db.get_setting("discord_war_status_enemy_message_id"),
+        "own_message_id": db.get_setting("discord_war_status_own_message_id"),
     }
 
 
@@ -146,7 +148,8 @@ def get_discord_war_status():
 def set_discord_war_status(body: DiscordWarStatusIn):
     db.set_setting("discord_war_status_war_id", str(body.war_id))
     db.set_setting("discord_war_status_channel_id", body.channel_id)
-    db.set_setting("discord_war_status_message_id", body.message_id)
+    db.set_setting("discord_war_status_enemy_message_id", body.enemy_message_id)
+    db.set_setting("discord_war_status_own_message_id", body.own_message_id)
     return get_discord_war_status()
 
 
@@ -154,7 +157,8 @@ def set_discord_war_status(body: DiscordWarStatusIn):
 def clear_discord_war_status():
     db.set_setting("discord_war_status_war_id", "")
     db.set_setting("discord_war_status_channel_id", "")
-    db.set_setting("discord_war_status_message_id", "")
+    db.set_setting("discord_war_status_enemy_message_id", "")
+    db.set_setting("discord_war_status_own_message_id", "")
     return get_discord_war_status()
 
 
