@@ -202,8 +202,9 @@ def build_enemy_status_message(data: dict) -> tuple[discord.Embed, discord.File]
     # Torn's API doesn't give an exact arrival time, but this board refreshes
     # every 5 minutes - so a member's takeoff (first observed "Traveling") is
     # known accurate to within that window, and estimated arrival = takeoff +
-    # Torn's standard travel duration for their destination. See bot/travel.py
-    # for the (unavoidable) assumptions this makes.
+    # standard travel duration for their destination (70% of that if they own
+    # a Private Island - private jet access). See bot/travel.py for the
+    # (unavoidable) remaining assumptions this makes.
     _travel_tracker.record(war["id"], members)
     landings = []
     for m in members:
@@ -213,12 +214,13 @@ def build_enemy_status_message(data: dict) -> tuple[discord.Embed, discord.File]
     if landings:
         landings.sort(key=lambda pair: pair[1])
         lines = [
-            f"[{m['name']}](https://www.torn.com/profiles.php?XID={m['id']}) - <t:{arrival}:R>"
+            f"[{m['name']}](https://www.torn.com/profiles.php?XID={m['id']})"
+            f"{' (PI)' if _travel_tracker.has_private_island(m['id']) else ''} - <t:{arrival}:R>"
             for m, arrival in landings[:20]
         ]
         if len(landings) > 20:
             lines.append(f"+{len(landings) - 20} more")
-        embed.add_field(name="Est. Landing (standard speed assumed)", value="\n".join(lines), inline=False)
+        embed.add_field(name="Est. Landing", value="\n".join(lines), inline=False)
 
     embed.set_footer(text="Decay/payout numbers are community-observed estimates, not official Torn data.")
 

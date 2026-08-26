@@ -195,6 +195,11 @@ class TornClient:
             cursor_from = max(i["started"] for i in items)
         return results
 
+    # --- User endpoints ---
+
+    def user_profile(self, user_id: int) -> dict:
+        return self.get(f"/user/{user_id}", {"selections": "profile"})["profile"]
+
     # --- Torn endpoints ---
 
     def torn_items(self, category: str | None = None) -> list[dict]:

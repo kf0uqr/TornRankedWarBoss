@@ -4,12 +4,14 @@ Torn's API doesn't give an exact arrival time for other players, but
 /current_war refreshes every 5 minutes - so when a member's status flips
 from something else to "Traveling" between two consecutive refreshes, that
 tells us their takeoff time accurate to within that window. Estimated
-arrival = takeoff + Torn's public standard (non-boosted) travel duration for
-their destination. This can't account for a private jet, WLT, Business
-Class, or the Airstrip faction perk, all of which shorten real travel time,
-so treat it as an upper bound, not a guarantee - and anyone already
-traveling when the bot starts (or before their first observed takeoff) has
-no estimate at all, since we never saw them leave.
+arrival = takeoff + a travel duration for their destination: the standard
+duration, or 70% of it if they own a Private Island (private jet access) -
+backend/routes/wars.py looks that up via /user/{id}?selections=profile for
+anyone currently traveling. This still can't account for WLT, Business
+Class, or the Airstrip faction perk, which also shorten real travel time, so
+treat it as an upper bound, not a guarantee - and anyone already traveling
+when the bot starts (or before their first observed takeoff) has no
+estimate at all, since we never saw them leave.
 """
 
 import time
@@ -30,12 +32,24 @@ STANDARD_TRAVEL_MINUTES = {
     "South Africa": 297,
 }
 
+# Private Island grants private jet access, cutting travel time to 70% of standard.
+PRIVATE_ISLAND_MULTIPLIER = 0.70
 
-def _parse_destination(description: str) -> str | None:
-    """"Traveling from Torn to South Africa" / "Traveling to South Africa" -> "South Africa"."""
-    if " to " in description:
-        return description.rsplit(" to ", 1)[-1].strip()
-    return None
+
+def _parse_travel_country(description: str) -> str | None:
+    """Returns whichever leg of the trip is the foreign country, regardless of
+    direction - travel duration is symmetric, so "Traveling from Torn to
+    Mexico" and "Traveling from Mexico to Torn" (the return leg) both take
+    Mexico's standard duration. Also handles "Traveling to X" (destination
+    only, no explicit origin)."""
+    if " to " not in description:
+        return None
+    origin, destination = description.split(" to ", 1)
+    origin = origin.removeprefix("Traveling from ").strip()
+    destination = destination.strip()
+    if destination != "Torn":
+        return destination
+    return origin if origin and origin != "Torn" else None
 
 
 class TravelTracker:
@@ -48,6 +62,10 @@ class TravelTracker:
         self._last_description: dict[int, str] = {}
 
     def record(self, war_id: int, members: list[dict]) -> None:
+        """members: each needs "id", "status" (with "description"), and
+        optionally "has_private_island" - only checked at the moment a
+        takeoff is first observed, so a later property change won't retroactively
+        affect an already-in-progress flight's estimate."""
         if war_id != self.war_id:
             self.war_id = war_id
             self._takeoffs = {}
@@ -59,13 +77,23 @@ class TravelTracker:
             mid = m["id"]
             seen_ids.add(mid)
             description = m["status"].get("description") or ""
+            previously_seen = mid in self._last_description
             was_traveling = self._last_description.get(mid, "").startswith("Traveling")
             is_traveling = description.startswith("Traveling")
 
-            if is_traveling and not was_traveling:
-                destination = _parse_destination(description)
-                if destination:
-                    self._takeoffs[mid] = {"t": now, "destination": destination}
+            # Only counts as an observed takeoff if we'd already seen this
+            # member NOT traveling on a prior poll - otherwise (e.g. right
+            # after a bot restart, or their first appearance on the roster)
+            # we don't actually know when they left, so no estimate at all
+            # beats a confidently wrong one anchored to "just now".
+            if is_traveling and previously_seen and not was_traveling:
+                country = _parse_travel_country(description)
+                if country:
+                    self._takeoffs[mid] = {
+                        "t": now,
+                        "destination": country,
+                        "has_private_island": bool(m.get("has_private_island")),
+                    }
             elif not is_traveling and mid in self._takeoffs:
                 del self._takeoffs[mid]
 
@@ -82,4 +110,10 @@ class TravelTracker:
         minutes = STANDARD_TRAVEL_MINUTES.get(entry["destination"])
         if minutes is None:
             return None
+        if entry["has_private_island"]:
+            minutes *= PRIVATE_ISLAND_MULTIPLIER
         return int(entry["t"] + minutes * 60)
+
+    def has_private_island(self, member_id: int) -> bool:
+        entry = self._takeoffs.get(member_id)
+        return bool(entry and entry["has_private_island"])

@@ -81,6 +81,19 @@ def current_war():
         opponent = next(f for f in current["factions"] if f["id"] != faction_id)
         members = client.faction_members(opponent["id"])
 
+        # Only worth checking for members currently traveling - a Private
+        # Island (private jet) speeds up that flight specifically, and this is
+        # a per-player profile lookup so there's no reason to spend it on
+        # anyone who isn't in the air right now.
+        for m in members:
+            if m["status"].get("state") != "Traveling":
+                continue
+            try:
+                profile = client.user_profile(m["id"])
+                m["has_private_island"] = (profile.get("property") or {}).get("name") == "Private Island"
+            except TornAPIError:
+                m["has_private_island"] = False
+
         own_members = client.faction_members(faction_id)
         now_ts = int(time.time())
         offense = stats.compute_live_war_offense(client, current["start"], now_ts)
