@@ -78,39 +78,53 @@
     });
   }
 
-  function sleep(ms) {
-    return new Promise((resolve) => setTimeout(resolve, ms));
-  }
-
   // Fills the search box, "Add to balance" radio, and amount field for one member.
   // Deliberately stops there - never touches the actual submit button.
+  //
+  // React re-renders this section after the player is selected and again after the
+  // radio is clicked, which can detach a DOM reference grabbed beforehand. So every
+  // lookup here is re-queried fresh from `document` and polled with waitFor rather
+  // than looked up once against a cached `panel` variable.
+  function getPanel() {
+    return document.querySelector(".give.control-tab-section");
+  }
+
+  function findAmountInput() {
+    const panel = getPanel();
+    if (!panel) return null;
+    // Torn renders more than one .legacy-money-input in this panel (give-money vs
+    // add-to-balance modes); only one is ever visible at a time.
+    const candidates = Array.from(panel.querySelectorAll('input[data-testid="legacy-money-input"][type="text"]'));
+    return candidates.find((el) => el.offsetParent !== null) || null;
+  }
+
   async function fillFormForMember(member) {
-    const panel = document.querySelector(".give.control-tab-section");
-    if (!panel) {
+    if (!getPanel()) {
       throw new Error('Open Faction > Controls > "Give to User" first.');
     }
 
-    const searchInput = panel.querySelector('input[data-testid="autocomplete-input"]');
-    if (!searchInput) throw new Error("Couldn't find the player search box - Torn may have changed its page.");
-
+    const searchInput = await waitFor(() => getPanel()?.querySelector('input[data-testid="autocomplete-input"]')).catch(() => {
+      throw new Error("Couldn't find the player search box - Torn may have changed its page.");
+    });
     searchInput.focus();
     setNativeValue(searchInput, member.name);
 
     const suggestion = await waitFor(() => {
       const buttons = document.querySelectorAll("button.item");
       return Array.from(buttons).find((b) => b.textContent.trim().endsWith(`[${member.member_id}]`));
+    }).catch(() => {
+      throw new Error(`Couldn't find "${member.name}" in the suggestions - check the name matches Torn exactly.`);
     });
     suggestion.click();
 
-    const addToBalanceRadio = panel.querySelector("#add-money-to-balance");
-    if (!addToBalanceRadio) throw new Error("Couldn't find the 'Add to balance' option - Torn may have changed its page.");
+    const addToBalanceRadio = await waitFor(() => getPanel()?.querySelector("#add-money-to-balance")).catch(() => {
+      throw new Error("Couldn't find the 'Add to balance' option - Torn may have changed its page.");
+    });
     addToBalanceRadio.click();
 
-    // Give React a moment to settle after the player selection before touching the amount field.
-    await sleep(200);
-
-    const amountInput = panel.querySelector('input[data-testid="legacy-money-input"][type="text"]');
-    if (!amountInput) throw new Error("Couldn't find the amount field - Torn may have changed its page.");
+    const amountInput = await waitFor(findAmountInput, { timeout: 6000 }).catch(() => {
+      throw new Error("Couldn't find the amount field - Torn may have changed its page.");
+    });
     setNativeValue(amountInput, String(Math.round(member.final_pay)));
 
     amountInput.scrollIntoView({ block: "center", behavior: "smooth" });
