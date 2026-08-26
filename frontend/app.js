@@ -97,6 +97,27 @@ function paysheetRowCells(m) {
   ];
 }
 
+function sumBy(members, fn) {
+  return members.reduce((total, m) => total + fn(m), 0);
+}
+
+function paysheetTotalsCells(members) {
+  const totalFinalPay = sumBy(members, (m) => m.final_pay);
+  return [
+    { text: "Total", color: IMAGE_COLORS.text },
+    num(sumBy(members, (m) => m.inside_hits)),
+    num(sumBy(members, (m) => m.outside_hits)),
+    num(sumBy(members, (m) => m.assist_hits)),
+    num(sumBy(members, (m) => m.xanax_used)),
+    "",
+    money(sumBy(members, (m) => m.calculated_fine)),
+    "",
+    money(sumBy(members, (m) => m.gross_pay)),
+    money(sumBy(members, (m) => m.flat_bonus + m.leadership_cut_share)),
+    { text: money(totalFinalPay), color: totalFinalPay < 0 ? IMAGE_COLORS.bad : undefined },
+  ];
+}
+
 // ---------- Copy tables as image ----------
 
 const IMAGE_COLORS = {
@@ -513,6 +534,7 @@ async function renderWarDetail(warId) {
           </tr>
         </thead>
         <tbody id="member-rows"></tbody>
+        <tfoot id="paysheet-totals"></tfoot>
       </table>
     </div>
 
@@ -538,7 +560,7 @@ async function renderWarDetail(warId) {
 
   root.querySelector("#copy-paysheet-image").addEventListener("click", () => {
     copyTablesAsImage(`Paysheet ${warTitle}`, [
-      { headers: PAYSHEET_HEADERS, rows: data.members.map(paysheetRowCells) },
+      { headers: PAYSHEET_HEADERS, rows: [...data.members.map(paysheetRowCells), paysheetTotalsCells(data.members)] },
     ]);
   });
 
@@ -634,6 +656,11 @@ async function renderWarDetail(warId) {
     `;
     memberBody.appendChild(tr);
   });
+
+  const totals = paysheetTotalsCells(data.members);
+  root.querySelector("#paysheet-totals").innerHTML = `
+    <tr>${totals.map((c) => `<td><strong class="${c && c.color === IMAGE_COLORS.bad ? "negative" : ""}">${cellText(c)}</strong></td>`).join("")}</tr>
+  `;
 
   memberBody.querySelectorAll(".member-rank").forEach((sel) => {
     sel.addEventListener("change", async () => {

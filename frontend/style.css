@@ -89,6 +89,12 @@ th { color: var(--text-dim); font-weight: 500; }
 
 tr:hover td { background: var(--panel-alt); }
 
+tfoot td {
+  border-top: 2px solid var(--border);
+  border-bottom: none;
+  background: var(--panel-alt);
+}
+
 input, select {
   background: var(--panel-alt);
   border: 1px solid var(--border);
