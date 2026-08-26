@@ -82,11 +82,14 @@ def current_war():
         members = client.faction_members(opponent["id"])
 
         own_members = client.faction_members(faction_id)
-        offense = stats.compute_live_war_offense(client, current["start"], int(time.time()))
+        now_ts = int(time.time())
+        offense = stats.compute_live_war_offense(client, current["start"], now_ts)
+        defense = stats.compute_live_war_defense(client, current["start"], now_ts)
         for m in own_members:
             entry = offense.get(m["id"], {"hits": 0, "respect": 0.0})
             m["war_hits"] = entry["hits"]
             m["war_respect"] = round(entry["respect"], 2)
+            m["war_respect_lost"] = round(defense.get(m["id"], 0.0), 2)
     except TornAPIError as exc:
         raise torn_error_to_http(exc)
     finally:

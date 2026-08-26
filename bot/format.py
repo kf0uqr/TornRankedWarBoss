@@ -209,10 +209,11 @@ def war_status_sort_key(m):
     return (0 if is_okay else 1, -(m["level"] or 0))
 
 
-# war_hits/war_respect are computed live from the attack log (Torn's own
-# rankedwarreport - used for the post-war paysheet - isn't available until
-# the war ends), so treat these as an estimate rather than the official score.
-OWN_WAR_HEADERS = ["Name", "Level", "Hits", "Respect", "Status", "Last Action", "Position"]
+# war_hits/war_respect/war_respect_lost are computed live from the attack log
+# (Torn's own rankedwarreport - used for the post-war paysheet - isn't
+# available until the war ends), so treat these as an estimate rather than
+# the official score.
+OWN_WAR_HEADERS = ["Name", "Level", "Hits", "Respect Gained", "Respect Lost", "Status", "Last Action", "Position"]
 
 
 def own_war_row(m) -> list:
@@ -224,6 +225,7 @@ def own_war_row(m) -> list:
         str(m["level"]),
         num(m.get("war_hits", 0)),
         num(m.get("war_respect", 0), 2),
+        num(m.get("war_respect_lost", 0), 2),
         {"text": status_text, "color": STATUS_COLOR_MAP.get(status.get("color"), COLORS["text"])},
         abbreviate_relative(la["relative"]),
         m.get("position") or "-",

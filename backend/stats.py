@@ -48,6 +48,23 @@ def compute_live_war_offense(client: TornClient, from_ts: int, to_ts: int) -> di
     return result
 
 
+def compute_live_war_defense(client: TornClient, from_ts: int, to_ts: int) -> dict[int, float]:
+    """Respect lost per member from every is_ranked_war-flagged incoming attack
+    in [from_ts, to_ts] - the live counterpart to compute_live_war_offense.
+    Filtered to is_ranked_war (unlike compute_respect_lost above, which is used
+    post-war for the xanax fine and intentionally counts every incoming attack
+    in the window) so this reflects only hits actually attributed to the war."""
+    losses: dict[int, float] = {}
+    for atk in client.faction_attacks("incoming", from_ts, to_ts):
+        if not atk.get("is_ranked_war"):
+            continue
+        defender_id = atk.get("defender", {}).get("id")
+        if defender_id is None:
+            continue
+        losses[defender_id] = losses.get(defender_id, 0.0) + (atk.get("respect_loss") or 0.0)
+    return losses
+
+
 def _dense_rank(items: list[tuple[int, float]], descending: bool) -> dict[int, int]:
     """items: (member_id, metric) pairs. Returns member_id -> rank, 1 = best."""
     distinct_values = sorted({value for _, value in items}, reverse=descending)
