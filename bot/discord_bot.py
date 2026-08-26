@@ -104,6 +104,17 @@ def build_war_status_message(data: dict) -> tuple[discord.Embed, discord.File]:
     embed.add_field(name="Score", value=f"{war['own_score']} - {war['opponent_score']} (target {war['target']})")
     okay_count = sum(1 for m in members if m["status"]["state"] == "Okay")
     embed.add_field(name="Attackable Now", value=f"{okay_count} / {len(members)}")
+
+    # Discord's own <t:...:R> timestamp markup counts down live in every
+    # viewer's client - unlike the table image, this needs no re-render to stay
+    # accurate, so hospital releases show up here instead of only in the image.
+    hospitalized = sorted((m for m in members if m["status"].get("until")), key=lambda m: m["status"]["until"])
+    if hospitalized:
+        lines = [f"{m['name']} - <t:{m['status']['until']}:R>" for m in hospitalized[:20]]
+        if len(hospitalized) > 20:
+            lines.append(f"+{len(hospitalized) - 20} more")
+        embed.add_field(name="In Hospital", value="\n".join(lines), inline=False)
+
     embed.set_footer(text=f"Auto-updates every {WAR_STATUS_REFRESH_MINUTES} min while this war is active")
 
     rows = [fmt.war_status_row(m) for m in members]
