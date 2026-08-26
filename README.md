@@ -59,7 +59,7 @@ The script only talks to `http://localhost:8787` (your own machine) and never to
 Lets leadership run read-only commands from Discord — `/wars`, `/paysheet [war_id]`, `/stats [war_id]`, `/career`, `/armory` — without needing to reach the app itself. It works entirely over an **outbound** connection to Discord (same as every Discord bot), so it needs no inbound port, no port forwarding, and no router changes at all. It talks to the app over plain `localhost`, since both run on your machine.
 
 1. Go to [discord.com/developers/applications](https://discord.com/developers/applications) → **New Application** → give it a name → **Bot** tab → **Reset Token** to reveal it, copy it.
-2. Under **OAuth2 → URL Generator**, check `bot` and `applications.commands`, then open the generated URL to invite it to your server.
+2. Under **OAuth2 → URL Generator**, check **both** `bot` and `applications.commands`, then open the generated URL to invite it to your server. If you only check `bot`, the bot joins fine but slash commands fail to register with a `403 Forbidden` error — if you hit that, re-generate the URL with both boxes checked and re-invite it (re-inviting with the extra scope is safe, it won't duplicate the bot).
 3. In the app's **Settings** tab, paste the bot token under "Discord Bot" and save.
 4. (Optional but recommended for testing) Add your Discord server's ID as the "Server (Guild) ID" — this makes new slash commands show up instantly instead of waiting up to an hour for Discord's global sync.
 5. Add each leader's Discord **User ID** (not username) under "Allowed Discord Users" — turn on Developer Mode in Discord (Settings → Advanced) to right-click someone and "Copy User ID". Only these accounts can use the bot's commands.

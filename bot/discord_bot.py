@@ -18,7 +18,6 @@ from pathlib import Path
 import discord
 import httpx
 from discord import app_commands
-from discord.ext import commands
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 from backend import db  # noqa: E402
@@ -26,8 +25,18 @@ from backend import db  # noqa: E402
 APP_BASE_URL = "http://localhost:8787"
 MAX_TABLE_ROWS = 20
 
-intents = discord.Intents.default()
-bot = commands.Bot(command_prefix="!", intents=intents)
+
+class TornBossClient(discord.Client):
+    """Slash-commands-only client - discord.ext.commands.Bot's prefix-command
+    machinery (and its unrelated "message content intent" warning) isn't
+    needed since every command here is a slash command via app_commands."""
+
+    def __init__(self):
+        super().__init__(intents=discord.Intents.default())
+        self.tree = app_commands.CommandTree(self)
+
+
+bot = TornBossClient()
 
 
 def money(n) -> str:
@@ -68,13 +77,28 @@ def table_block(rows: list[str], header: str | None = None) -> str:
 @bot.event
 async def on_ready():
     guild_id = db.get_setting("discord_guild_id")
+    synced_where = "globally (can take up to an hour to show up)"
     if guild_id:
         guild = discord.Object(id=int(guild_id))
         bot.tree.copy_global_to(guild=guild)
-        await bot.tree.sync(guild=guild)
+        try:
+            await bot.tree.sync(guild=guild)
+            synced_where = f"to guild {guild_id}"
+        except discord.Forbidden:
+            # Almost always means the bot was invited without the
+            # applications.commands OAuth2 scope, or the guild ID doesn't
+            # match a server the bot is actually in - re-invite it with both
+            # `bot` and `applications.commands` checked in the URL Generator.
+            print(
+                f"Could not sync commands to guild {guild_id} (403 Forbidden). "
+                "Falling back to a global sync. This usually means the bot was invited "
+                "without the 'applications.commands' scope, or the guild ID is wrong - "
+                "see the README's Discord bot setup steps."
+            )
+            await bot.tree.sync()
     else:
         await bot.tree.sync()
-    print(f"Logged in as {bot.user} - commands synced" + (f" to guild {guild_id}" if guild_id else " globally"))
+    print(f"Logged in as {bot.user} - commands synced {synced_where}")
 
 
 @bot.tree.command(name="wars", description="List synced ranked wars")
