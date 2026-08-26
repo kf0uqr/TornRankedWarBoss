@@ -27,6 +27,8 @@ from backend import db  # noqa: E402
 from bot import activity  # noqa: E402
 from bot import decay  # noqa: E402
 from bot import format as fmt  # noqa: E402
+from bot import revives  # noqa: E402
+from bot import self_hosp  # noqa: E402
 from bot import travel  # noqa: E402
 from bot.render import render_tables  # noqa: E402
 
@@ -35,6 +37,8 @@ WAR_STATUS_REFRESH_MINUTES = 1
 
 _score_history = decay.ScoreHistory()
 _travel_tracker = travel.TravelTracker()
+_self_hosp_tracker = self_hosp.SelfHospAlertTracker()
+_revives_tracker = revives.RevivesReminderTracker()
 
 
 class TornBossClient(discord.Client):
@@ -133,6 +137,63 @@ async def sync_activity_observations(members: list[dict]) -> dict:
     except Exception as e:
         print(f"Failed to fetch activity estimates: {e}")
         return {}
+
+
+async def _get_alert_channel() -> discord.abc.Messageable | None:
+    channel_id = db.get_setting("discord_alert_channel_id")
+    if not channel_id:
+        return None
+    try:
+        return bot.get_channel(int(channel_id)) or await bot.fetch_channel(int(channel_id))
+    except (discord.NotFound, discord.Forbidden) as e:
+        print(f"Couldn't reach the configured alert channel: {e}")
+        return None
+
+
+def _mention_for(member_id: int, member_name: str, torn_id_to_discord: dict[int, str]) -> str:
+    discord_id = torn_id_to_discord.get(member_id)
+    return f"<@{discord_id}>" if discord_id else f"**{member_name}**"
+
+
+async def check_self_hosp_alerts(own_members: list[dict]) -> None:
+    due = _self_hosp_tracker.check(own_members)
+    if not due:
+        return
+    channel = await _get_alert_channel()
+    if channel is None:
+        return
+
+    torn_id_to_discord = db.get_torn_id_to_discord_id_map()
+    for m in due:
+        mention = _mention_for(m["id"], m["name"], torn_id_to_discord)
+        await channel.send(
+            f"{mention} you're released from hospital <t:{m['status']['until']}:R> and you've been offline "
+            f"{self_hosp.OFFLINE_THRESHOLD_SECONDS // 60}+ minutes - self-hospitalize now to protect your "
+            "respect before you walk out exposed!"
+        )
+
+
+async def check_revives_reminders(war: dict, own_members: list[dict]) -> None:
+    now = time.time()
+    due = _revives_tracker.check(war["id"], war["start"], own_members, now)
+    if not due:
+        return
+    channel = await _get_alert_channel()
+    if channel is None:
+        return
+
+    war_started = now >= war["start"]
+    torn_id_to_discord = db.get_torn_id_to_discord_id_map()
+    for m in due:
+        mention = _mention_for(m["id"], m["name"], torn_id_to_discord)
+        if war_started:
+            status_line = f"The war against {war['opponent_name']} has started"
+        else:
+            status_line = f"The war against {war['opponent_name']} starts <t:{war['start']}:R>"
+        await channel.send(
+            f"{mention} {status_line} and you still have revives on (**{m.get('revive_setting', 'on')}**) - "
+            "please turn them off."
+        )
 
 
 def table_block(rows: list[str], header: str | None = None) -> str:
@@ -544,6 +605,22 @@ async def armory_command(interaction: discord.Interaction):
 
 @tasks.loop(minutes=WAR_STATUS_REFRESH_MINUTES)
 async def refresh_war_status():
+    try:
+        data = await api_get("/api/wars/current")
+    except Exception as e:
+        print(f"current_war refresh: couldn't reach the app: {e}")
+        return
+
+    # Self-hosp and revives reminders run off this same poll whether or not
+    # anyone has posted the /current_war boards - revives in particular needs
+    # to start nagging people up to 5 hours before the war even begins, well
+    # before leadership would think to run that command.
+    war = data["war"]
+    if war is not None:
+        if time.time() >= war["start"]:
+            await check_self_hosp_alerts(data["own_members"])
+        await check_revives_reminders(war, data["own_members"])
+
     ref = await api_get("/api/settings/discord-war-status")
     if not ref.get("enemy_message_id") or not ref.get("own_message_id") or not ref.get("activity_message_id"):
         return
@@ -560,13 +637,6 @@ async def refresh_war_status():
         await api_delete("/api/settings/discord-war-status")
         return
 
-    try:
-        data = await api_get("/api/wars/current")
-    except Exception as e:
-        print(f"current_war refresh: couldn't reach the app: {e}")
-        return
-
-    war = data["war"]
     if war is None or war["id"] != ref["war_id"]:
         ended_note = "*This war has ended - this board is no longer being updated.*"
         await enemy_message.edit(content=ended_note)

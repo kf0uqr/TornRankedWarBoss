@@ -58,6 +58,7 @@ CREATE TABLE IF NOT EXISTS discord_allowed_users (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     discord_user_id TEXT NOT NULL UNIQUE,
     label TEXT,
+    torn_player_id INTEGER,
     added_at INTEGER
 );
 
@@ -190,6 +191,10 @@ def _post_migrate(conn, had_legacy_fine: bool):
         conn.execute("ALTER TABLE wars ADD COLUMN is_termed INTEGER NOT NULL DEFAULT 0")
     if "termed_at" not in war_columns:
         conn.execute("ALTER TABLE wars ADD COLUMN termed_at INTEGER")
+
+    allowed_user_columns = {row["name"] for row in conn.execute("PRAGMA table_info(discord_allowed_users)")}
+    if "torn_player_id" not in allowed_user_columns:
+        conn.execute("ALTER TABLE discord_allowed_users ADD COLUMN torn_player_id INTEGER")
 
     if had_legacy_fine:
         conn.execute(
@@ -337,7 +342,7 @@ def list_discord_allowed_users() -> list[dict]:
     conn = get_connection()
     try:
         rows = conn.execute(
-            "SELECT id, discord_user_id, label, added_at FROM discord_allowed_users ORDER BY id"
+            "SELECT id, discord_user_id, label, torn_player_id, added_at FROM discord_allowed_users ORDER BY id"
         ).fetchall()
         return [dict(r) for r in rows]
     finally:
@@ -353,12 +358,29 @@ def get_discord_allowed_user_ids() -> set[str]:
         conn.close()
 
 
-def add_discord_allowed_user(discord_user_id: str, label: str | None) -> None:
+def get_torn_id_to_discord_id_map() -> dict[int, str]:
+    conn = get_connection()
+    try:
+        rows = conn.execute(
+            "SELECT discord_user_id, torn_player_id FROM discord_allowed_users WHERE torn_player_id IS NOT NULL"
+        ).fetchall()
+        return {r["torn_player_id"]: r["discord_user_id"] for r in rows}
+    finally:
+        conn.close()
+
+
+def add_discord_allowed_user(discord_user_id: str, label: str | None, torn_player_id: int | None = None) -> None:
     conn = get_connection()
     try:
         conn.execute(
-            "INSERT OR IGNORE INTO discord_allowed_users (discord_user_id, label, added_at) VALUES (?, ?, ?)",
-            (discord_user_id, label, int(time.time())),
+            """
+            INSERT INTO discord_allowed_users (discord_user_id, label, torn_player_id, added_at)
+            VALUES (?, ?, ?, ?)
+            ON CONFLICT(discord_user_id) DO UPDATE SET
+                label = excluded.label,
+                torn_player_id = excluded.torn_player_id
+            """,
+            (discord_user_id, label, torn_player_id, int(time.time())),
         )
         conn.commit()
     finally:

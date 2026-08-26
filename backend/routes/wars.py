@@ -96,8 +96,16 @@ def current_war():
 
         own_members = client.faction_members(faction_id)
         now_ts = int(time.time())
-        offense = stats.compute_live_war_offense(client, current["start"], now_ts)
-        defense = stats.compute_live_war_defense(client, current["start"], now_ts)
+        # faction_rankedwars lists a declared-but-not-yet-started war the same
+        # way as an active one (end == 0 either way) - skip the attack-log
+        # pull entirely in that case, both because there's nothing to fetch
+        # yet and because current["start"] > now_ts would otherwise send Torn
+        # an inverted from/to range.
+        if current["start"] <= now_ts:
+            offense = stats.compute_live_war_offense(client, current["start"], now_ts)
+            defense = stats.compute_live_war_defense(client, current["start"], now_ts)
+        else:
+            offense, defense = {}, {}
         for m in own_members:
             entry = offense.get(m["id"], {"hits": 0, "respect": 0.0})
             m["war_hits"] = entry["hits"]

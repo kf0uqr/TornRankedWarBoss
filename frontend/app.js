@@ -394,11 +394,19 @@ async function renderSettings() {
         <label>Server (Guild) ID <span class="muted">(optional - instant command sync)</span><br/><input id="discord-guild-id" value="${settings.discord_guild_id ?? ""}" style="width:200px" /></label>
         <button class="action" id="save-discord-guild" style="align-self:flex-end">Save</button>
       </div>
+      <div class="row" style="margin-top:10px">
+        <label>Alert Channel ID <span class="muted">(self-hosp / revives-off reminders)</span><br/><input id="discord-alert-channel-id" value="${settings.discord_alert_channel_id ?? ""}" style="width:200px" /></label>
+        <button class="action" id="save-discord-alert-channel" style="align-self:flex-end">Save</button>
+      </div>
 
       <h3 style="margin-top:16px">Allowed Discord Users</h3>
-      <p class="muted">Only these Discord accounts can use the bot's commands - everyone else is ignored.</p>
+      <p class="muted">
+        Only these Discord accounts can use the bot's commands - everyone else is ignored. Torn Player ID is
+        optional and separate from that - it's how the bot knows who to @mention for self-hosp and revives-off
+        alerts, and doesn't affect command access.
+      </p>
       <table>
-        <thead><tr><th>Label</th><th>Discord User ID</th><th></th></tr></thead>
+        <thead><tr><th>Label</th><th>Discord User ID</th><th>Torn Player ID</th><th></th></tr></thead>
         <tbody id="discord-user-rows">
           ${discordUsers
             .map(
@@ -406,17 +414,20 @@ async function renderSettings() {
             <tr>
               <td>${u.label || "-"}</td>
               <td class="muted">${u.discord_user_id}</td>
+              <td class="muted">${u.torn_player_id ?? "-"}</td>
               <td><button class="danger" data-del-discord-user="${u.id}">Remove</button></td>
             </tr>`
             )
-            .join("") || `<tr><td colspan="3" class="muted">No one added yet.</td></tr>`}
+            .join("") || `<tr><td colspan="4" class="muted">No one added yet.</td></tr>`}
         </tbody>
       </table>
       <div class="row" style="margin-top:10px">
         <input id="new-discord-user-id" placeholder="Discord User ID" style="width:180px" />
         <input id="new-discord-user-label" placeholder="Label (e.g. a name)" style="width:200px" />
+        <input id="new-discord-user-torn-id" placeholder="Torn Player ID (optional)" type="number" style="width:180px" />
         <button class="action" id="add-discord-user">Add</button>
       </div>
+      <p class="muted">Re-adding an existing Discord User ID updates its label/Torn Player ID instead of duplicating the row.</p>
       <p class="muted">Turn on Discord's Developer Mode (Settings → Advanced) to right-click a user and "Copy User ID".</p>
     </div>
 
@@ -533,13 +544,21 @@ async function renderSettings() {
     renderSettings();
   });
 
+  root.querySelector("#save-discord-alert-channel").addEventListener("click", async () => {
+    const channelId = root.querySelector("#discord-alert-channel-id").value.trim();
+    await api("/api/settings/discord-alert-channel-id", { method: "POST", body: JSON.stringify({ channel_id: channelId }) });
+    toast("Saved");
+    renderSettings();
+  });
+
   root.querySelector("#add-discord-user").addEventListener("click", async () => {
     const id = root.querySelector("#new-discord-user-id").value.trim();
     const label = root.querySelector("#new-discord-user-label").value.trim();
+    const tornId = root.querySelector("#new-discord-user-torn-id").value.trim();
     if (!id) return;
     await api("/api/settings/discord-allowed-users", {
       method: "POST",
-      body: JSON.stringify({ discord_user_id: id, label: label || null }),
+      body: JSON.stringify({ discord_user_id: id, label: label || null, torn_player_id: tornId ? Number(tornId) : null }),
     });
     toast("Discord user added");
     renderSettings();

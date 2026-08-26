@@ -70,6 +70,15 @@ It also shows a war-decay countdown (both sides' time until the war's decaying t
 
 Estimated stats come from [ffscouter.com](https://ffscouter.com) (Torn's own API doesn't expose enemy battle stats - that needs a spy report). Register an API key there and add it under **Settings → FFScouter** to enable that column; without one, the board still works but shows "-" for it. Fair Fight itself isn't shown - it's computed relative to your own stats, so it isn't a meaningful number to broadcast to the whole team.
 
+### Alerts (self-hosp and revives-off reminders)
+
+The bot also proactively @mentions people in a configurable **Alert Channel** (Settings → Discord Bot → Alert Channel ID) when either of these happens, independent of whether `/current_war` has been run:
+
+- **Self-hospitalize reminder** (`bot/self_hosp.py`) - once a war has started, if a member has been offline 30+ minutes *and* is in hospital with 5 minutes or less left on the clock, they're about to walk out exposed with no chance to protect their respect. Repeats up to 3 times for that same hospital stay, stopping early if they come back online.
+- **Revives-off reminder** (`bot/revives.py`) - starting 5 hours before a declared war's start time (Torn lists a not-yet-started war the same way as an active one, so this can fire before the war begins) and repeating every 4 hours per member, anyone with revives enabled gets pinged to turn them off. Keeps firing on the same schedule after the war starts too - the wording just changes from "starts in..." to "has started" - until they actually turn revives off.
+
+Both need each player's Torn ID linked to their Discord ID to @mention them by name - add it as the optional **Torn Player ID** field on the existing Allowed Discord Users list in Settings (separate from bot command access; someone can have one without the other). Anyone without a linked Torn ID still gets flagged, just by name instead of a mention.
+
 1. Go to [discord.com/developers/applications](https://discord.com/developers/applications) → **New Application** → give it a name → **Bot** tab → **Reset Token** to reveal it, copy it.
 2. Under **OAuth2 → URL Generator**, check **both** `bot` and `applications.commands`, then open the generated URL to invite it to your server. If you only check `bot`, the bot joins fine but slash commands fail to register with a `403 Forbidden` error — if you hit that, re-generate the URL with both boxes checked and re-invite it (re-inviting with the extra scope is safe, it won't duplicate the bot).
 3. In the app's **Settings** tab, paste the bot token under "Discord Bot" and save.
