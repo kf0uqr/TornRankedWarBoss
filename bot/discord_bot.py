@@ -77,7 +77,15 @@ async def api_get(path: str) -> dict:
 async def api_post(path: str, json: dict) -> dict:
     async with httpx.AsyncClient(base_url=APP_BASE_URL, timeout=20) as client:
         resp = await client.post(path, json=json)
-        resp.raise_for_status()
+        if resp.status_code >= 400:
+            # Surface FastAPI's {"detail": "..."} instead of a generic status
+            # code - the caller (e.g. /add_api_key) has an actual message to
+            # show for "wrong faction"/"invalid key" instead of "400 Bad Request".
+            try:
+                detail = resp.json().get("detail", resp.text)
+            except ValueError:
+                detail = resp.text
+            raise RuntimeError(detail)
         return resp.json()
 
 
@@ -323,6 +331,38 @@ async def on_ready():
     print(f"Logged in as {bot.user} - commands synced {synced_where}")
     if not refresh_war_status.is_running():
         refresh_war_status.start()
+
+
+@bot.tree.command(name="add_api_key", description="Add your Torn API key to the app's key pool (DM me this - never use it in a server channel)")
+@app_commands.describe(key="Your Torn API key (Limited access or higher)", label="Optional label - defaults to your player name")
+async def add_api_key_command(interaction: discord.Interaction, key: str, label: str | None = None):
+    # Deliberately NOT gated by ensure_allowed - the point is to let any
+    # faction member submit their own key without needing to be on the
+    # leadership allowlist. Torn's own key/info lookup (in the backend) is
+    # the actual gate: only keys belonging to a real member of this faction
+    # get accepted.
+    if interaction.guild is not None:
+        await interaction.response.send_message(
+            "Please send me this command in a DM instead - anyone in this channel could see your key otherwise "
+            "(the invocation itself stays visible even though my reply is private).",
+            ephemeral=True,
+        )
+        return
+    await interaction.response.defer(ephemeral=True)
+    try:
+        result = await api_post("/api/settings/api-keys/validated", {"api_key": key.strip(), "label": label})
+    except RuntimeError as e:
+        await interaction.followup.send(f"Couldn't add that key: {e}", ephemeral=True)
+        return
+    except Exception as e:
+        await interaction.followup.send(f"Couldn't reach the app: {e}", ephemeral=True)
+        return
+
+    name = result.get("player_name") or "unknown player"
+    await interaction.followup.send(
+        f"Added - this key belongs to **{name}** ({result['access_type']} access). Thanks!",
+        ephemeral=True,
+    )
 
 
 @bot.tree.command(name="wars", description="List synced ranked wars")

@@ -1,7 +1,9 @@
-from fastapi import APIRouter
+import httpx
+from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 
 from backend import db
+from backend.torn_api import TornAPIError, TornClient
 
 router = APIRouter(prefix="/api/settings", tags=["settings"])
 
@@ -16,6 +18,11 @@ class RankPayRateIn(BaseModel):
 
 
 class ApiKeyIn(BaseModel):
+    api_key: str
+    label: str | None = None
+
+
+class ValidatedApiKeyIn(BaseModel):
     api_key: str
     label: str | None = None
 
@@ -97,6 +104,42 @@ def add_api_key(body: ApiKeyIn):
 def delete_api_key(key_id: int):
     db.remove_api_key(key_id)
     return _api_keys_out()
+
+
+@router.post("/api-keys/validated")
+def add_validated_api_key(body: ValidatedApiKeyIn):
+    """Same as POST /api-keys, but for keys arriving from a less deliberate
+    source (the Discord bot's /add_api_key command) - checks the key is
+    actually valid and belongs to this faction before storing it, rather
+    than trusting whatever text was pasted in."""
+    key = body.api_key.strip()
+    try:
+        info = TornClient([key]).get("/key/info")["info"]
+    except TornAPIError as exc:
+        raise HTTPException(status_code=400, detail=f"Torn rejected this key: {exc.message}")
+    except httpx.HTTPError as exc:
+        raise HTTPException(status_code=502, detail=f"Couldn't reach Torn's API: {exc}")
+
+    key_faction_id = info["user"]["faction_id"]
+    our_faction_id = db.get_faction_id()
+    if our_faction_id and key_faction_id != our_faction_id:
+        raise HTTPException(
+            status_code=400,
+            detail=f"This key belongs to a member of faction {key_faction_id}, not this faction ({our_faction_id}).",
+        )
+
+    player_name = None
+    try:
+        player_name = TornClient([key]).user_profile(info["user"]["id"]).get("name")
+    except TornAPIError:
+        pass
+
+    db.add_api_key(key, body.label.strip() if body.label else player_name)
+    return {
+        "player_name": player_name,
+        "access_type": info["access"]["type"],
+        "faction_id": key_faction_id,
+    }
 
 
 @router.post("/discord-bot-token")
