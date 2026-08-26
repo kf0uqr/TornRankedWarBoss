@@ -60,6 +60,8 @@ Lets leadership run read-only commands from Discord — `/wars`, `/paysheet [war
 
 `/current_war` posts an enemy-roster status board (level, estimated stats, status, last action, position, wall/revivable flags) for whichever ranked war is currently active, then edits that same message in place every 5 minutes for as long as the war runs. Anyone currently hospitalized also gets an "In Hospital" field with a live-counting-down release timer (Discord's own timestamp markup, so it stays accurate to the second between refreshes without the bot doing anything). The board stops updating on its own once the war ends; run `/current_war` again for the next one.
 
+It also shows a war-decay countdown (both sides' time until the war's decaying target score falls to their current score), a catch-up rate if your faction is trailing (factoring in the enemy's own observed scoring pace), and how much more score your faction needs for max payout - ported from a faction leader's own Tampermonkey "War Decay Timer" script (see `bot/decay.py`). These are community-observed formulas, not documented by Torn, so treat them as estimates.
+
 Estimated stats come from [ffscouter.com](https://ffscouter.com) (Torn's own API doesn't expose enemy battle stats - that needs a spy report). Register an API key there and add it under **Settings → FFScouter** to enable that column; without one, the board still works but shows "-" for it. Fair Fight itself isn't shown - it's computed relative to your own stats, so it isn't a meaningful number to broadcast to the whole team.
 
 1. Go to [discord.com/developers/applications](https://discord.com/developers/applications) → **New Application** → give it a name → **Bot** tab → **Reset Token** to reveal it, copy it.

@@ -14,6 +14,7 @@ directly (see start-bot.sh).
 
 import io
 import sys
+import time
 from pathlib import Path
 
 import discord
@@ -23,11 +24,14 @@ from discord.ext import tasks
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 from backend import db  # noqa: E402
+from bot import decay  # noqa: E402
 from bot import format as fmt  # noqa: E402
 from bot.render import render_tables  # noqa: E402
 
 APP_BASE_URL = "http://localhost:8787"
 WAR_STATUS_REFRESH_MINUTES = 5
+
+_score_history = decay.ScoreHistory()
 
 
 class TornBossClient(discord.Client):
@@ -96,6 +100,49 @@ def image_file(png_bytes: bytes, filename: str) -> discord.File:
     return discord.File(io.BytesIO(png_bytes), filename=filename)
 
 
+def _add_decay_fields(embed: discord.Embed, war: dict) -> None:
+    """War-decay countdown, catch-up rate, and max-payout threshold - ported
+    from a faction leader's own Tampermonkey "War Decay Timer" script. See
+    bot/decay.py for the (community-observed, not Torn-documented) formulas."""
+    elapsed_hours = (time.time() - war["start"]) / 3600
+    own_seconds = decay.compute_seconds_remaining(war["target"], war["own_score"], elapsed_hours)
+    opp_seconds = decay.compute_seconds_remaining(war["target"], war["opponent_score"], elapsed_hours)
+    original_target = decay.compute_original_target(war["target"], elapsed_hours)
+
+    embed.add_field(
+        name="War Decay Countdown",
+        value=f"Us: {decay.format_duration(own_seconds)}\nThem: {decay.format_duration(opp_seconds)}",
+    )
+
+    _score_history.record(war["id"], war["own_score"], war["opponent_score"])
+    own_leading = war["own_score"] >= war["opponent_score"]
+    gap = abs(war["own_score"] - war["opponent_score"])
+    leading_seconds = own_seconds if own_leading else opp_seconds
+    leading_hours = leading_seconds / 3600 if leading_seconds else None
+
+    if own_leading:
+        catchup_text = "Tied." if gap == 0 else "We're ahead."
+        payout_threshold = original_target
+    else:
+        enemy_rate = _score_history.observed_rate_per_hour("opp")
+        if leading_hours:
+            required_rate = max(0.0, gap / leading_hours + (enemy_rate or 0.0))
+            rate_text = f"{required_rate:.1f} score/hr needed"
+        else:
+            rate_text = "-"
+        enemy_rate_text = f"{enemy_rate:+.1f}/hr" if enemy_rate is not None else "gathering data (~15 min)"
+        catchup_text = f"{rate_text}\n(their pace: {enemy_rate_text})"
+        payout_threshold = original_target / 2
+
+    embed.add_field(name="Catch-Up Rate" if not own_leading else "Status", value=catchup_text)
+
+    payout_remaining = payout_threshold - war["own_score"]
+    payout_text = (
+        "Max payout reached" if payout_remaining <= 0 else f"{payout_remaining:,.0f} more score for max payout"
+    )
+    embed.add_field(name="Max Payout", value=payout_text)
+
+
 def build_war_status_message(data: dict) -> tuple[discord.Embed, discord.File]:
     war = data["war"]
     members = sorted(data["members"], key=fmt.war_status_sort_key)
@@ -104,6 +151,8 @@ def build_war_status_message(data: dict) -> tuple[discord.Embed, discord.File]:
     embed.add_field(name="Score", value=f"{war['own_score']} - {war['opponent_score']} (target {war['target']})")
     okay_count = sum(1 for m in members if m["status"]["state"] == "Okay")
     embed.add_field(name="Attackable Now", value=f"{okay_count} / {len(members)}")
+
+    _add_decay_fields(embed, war)
 
     # Discord's own <t:...:R> timestamp markup counts down live in every
     # viewer's client - unlike the table image, this needs no re-render to stay
@@ -121,7 +170,10 @@ def build_war_status_message(data: dict) -> tuple[discord.Embed, discord.File]:
             lines.append(f"+{len(hospitalized) - 20} more")
         embed.add_field(name="In Hospital", value="\n".join(lines), inline=False)
 
-    embed.set_footer(text=f"Auto-updates every {WAR_STATUS_REFRESH_MINUTES} min while this war is active")
+    embed.set_footer(
+        text=f"Auto-updates every {WAR_STATUS_REFRESH_MINUTES} min while this war is active. "
+        "Decay/payout numbers are community-observed estimates, not official Torn data."
+    )
 
     rows = [fmt.war_status_row(m) for m in members]
     png = render_tables(f"Enemy Roster - {war['opponent_name']}", [{"heading": None, "headers": fmt.WAR_STATUS_HEADERS, "rows": rows}])
