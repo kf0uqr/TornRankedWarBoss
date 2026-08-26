@@ -12,6 +12,7 @@ of allowed Discord user IDs from the app's Settings tab, then run this file
 directly (see start-bot.sh).
 """
 
+import io
 import sys
 from pathlib import Path
 
@@ -21,9 +22,10 @@ from discord import app_commands
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 from backend import db  # noqa: E402
+from bot import format as fmt  # noqa: E402
+from bot.render import render_tables  # noqa: E402
 
 APP_BASE_URL = "http://localhost:8787"
-MAX_TABLE_ROWS = 20
 
 
 class TornBossClient(discord.Client):
@@ -72,6 +74,10 @@ def table_block(rows: list[str], header: str | None = None) -> str:
     lines = ([header] if header else []) + rows
     text = "```\n" + "\n".join(lines) + "\n```"
     return text[:1024]
+
+
+def image_file(png_bytes: bytes, filename: str) -> discord.File:
+    return discord.File(io.BytesIO(png_bytes), filename=filename)
 
 
 @bot.event
@@ -144,11 +150,9 @@ async def paysheet_command(interaction: discord.Interaction, war_id: int | None 
     embed.add_field(name="Pay For Hits", value=money(totals["pay_for_hits"]))
     embed.add_field(name="Total Expenses", value=money(totals["total_expenses"]))
 
-    rows = [f"{('paid' if m['paid'] else '-'):<5}{m['name']:<15}{money(m['final_pay'])}" for m in members[:MAX_TABLE_ROWS]]
-    embed.add_field(name=f"Final Pay (top {min(len(members), MAX_TABLE_ROWS)})", value=table_block(rows), inline=False)
-    if len(members) > MAX_TABLE_ROWS:
-        embed.set_footer(text=f"+{len(members) - MAX_TABLE_ROWS} more not shown - see the app for the full list")
-    await interaction.followup.send(embed=embed)
+    rows = [fmt.paysheet_row(m) for m in members] + [fmt.paysheet_totals_row(members)]
+    png = render_tables(embed.title, [{"heading": None, "headers": fmt.PAYSHEET_HEADERS, "rows": rows}])
+    await interaction.followup.send(embed=embed, file=image_file(png, "paysheet.png"))
 
 
 @bot.tree.command(name="stats", description="Show player stats for a war (defaults to most recent)")
@@ -169,13 +173,21 @@ async def stats_command(interaction: discord.Interaction, war_id: int | None = N
         return
 
     embed = discord.Embed(title=f"Player Stats - war {war_id}", color=0x5DA9FF)
+    sections = []
     for section_name, key in (("Leadership", "leadership"), ("Everyone Else", "others")):
-        members = sorted(data[key], key=lambda m: m["overall_rank"])[:MAX_TABLE_ROWS]
+        members = sorted(data[key], key=lambda m: m["overall_rank"])
         if not members:
             continue
-        rows = [f"#{m['overall_rank']:<4}{m['name']:<15}{int(m['total_hits'])} hits" for m in members]
-        embed.add_field(name=section_name, value=table_block(rows), inline=False)
-    await interaction.followup.send(embed=embed)
+        sections.append({
+            "heading": section_name,
+            "headers": fmt.STAT_HEADERS,
+            "rows": [fmt.stats_row(m) for m in members],
+        })
+    if not sections:
+        await interaction.followup.send("No stats for this war.")
+        return
+    png = render_tables(embed.title, sections)
+    await interaction.followup.send(embed=embed, file=image_file(png, "stats.png"))
 
 
 @bot.tree.command(name="career", description="Show the career stats leaderboard (all synced wars)")
@@ -189,14 +201,14 @@ async def career_command(interaction: discord.Interaction):
         await interaction.followup.send(f"Couldn't reach the app: {e}")
         return
 
-    members = sorted(members, key=lambda m: m["overall_rank"])[:MAX_TABLE_ROWS]
+    members = sorted(members, key=lambda m: m["overall_rank"])
     if not members:
         await interaction.followup.send("No stats yet - sync a war first.")
         return
-    rows = [f"#{m['overall_rank']:<4}{m['name']:<15}{m['wars_played']}w {m['avg_hits']:.1f} avg hits" for m in members]
     embed = discord.Embed(title="Career Leaderboard", color=0x5DA9FF)
-    embed.add_field(name="Overall Rank", value=table_block(rows), inline=False)
-    await interaction.followup.send(embed=embed)
+    rows = [fmt.career_row(m) for m in members]
+    png = render_tables(embed.title, [{"heading": None, "headers": fmt.CAREER_HEADERS, "rows": rows}])
+    await interaction.followup.send(embed=embed, file=image_file(png, "career.png"))
 
 
 @bot.tree.command(name="armory", description="Show the armory restock summary")
@@ -213,12 +225,13 @@ async def armory_command(interaction: discord.Interaction):
     needed = sorted((l for l in restock["lines"] if l["needed"] > 0), key=lambda l: l["cost"], reverse=True)
     embed = discord.Embed(title="Armory Restock", color=0x5DA9FF)
     embed.add_field(name="Total Cost", value=money(restock["total_cost"]), inline=False)
-    if needed:
-        rows = [f"{l['item_name']:<20}{l['needed']:>6} x {money(l['unit_price'])}" for l in needed[:MAX_TABLE_ROWS]]
-        embed.add_field(name="Items Needing Restock", value=table_block(rows), inline=False)
-    else:
+    if not needed:
         embed.add_field(name="Items Needing Restock", value="Fully stocked.", inline=False)
-    await interaction.followup.send(embed=embed)
+        await interaction.followup.send(embed=embed)
+        return
+    rows = [fmt.armory_row(l) for l in needed] + [fmt.armory_totals_row(needed)]
+    png = render_tables(embed.title, [{"heading": None, "headers": fmt.ARMORY_HEADERS, "rows": rows}])
+    await interaction.followup.send(embed=embed, file=image_file(png, "armory.png"))
 
 
 def main():
