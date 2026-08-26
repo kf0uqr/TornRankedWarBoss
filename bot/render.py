@@ -84,9 +84,62 @@ def _text_width(draw: ImageDraw.ImageDraw, text: str, font) -> int:
     return box[2] - box[0]
 
 
+def _section_col_widths(mdraw: ImageDraw.ImageDraw, section: dict, header_font, cell_font) -> list[int]:
+    widths = [_text_width(mdraw, h, header_font) for h in section["headers"]]
+    for row in section["rows"]:
+        for ci, cell in enumerate(row):
+            widths[ci] = max(widths[ci], _text_width(mdraw, _cell_text(cell), cell_font))
+    return widths
+
+
+def _section_height(section: dict) -> int:
+    height = ROW_HEIGHT * (len(section["rows"]) + 1)
+    if section.get("heading"):
+        height += SUBHEADER_HEIGHT
+    return height
+
+
+def _draw_table(draw: ImageDraw.ImageDraw, x: int, y: int, section: dict, col_widths: list[int], header_font, cell_font, subheader_font) -> tuple[int, int]:
+    """Draws one table with its top-left corner at (x, y) - y is the top of its
+    heading if it has one, else the top of the header row. Returns
+    (total_width, bottom_y) so callers can lay out whatever comes next."""
+    header_top = y
+    if section.get("heading"):
+        draw.text((x, y), section["heading"], font=subheader_font, fill=COLORS["accent"])
+        header_top = y + SUBHEADER_HEIGHT
+
+    total_w = sum(w + COL_PAD * 2 for w in col_widths)
+
+    draw.rectangle([x, header_top, x + total_w, header_top + ROW_HEIGHT], fill=COLORS["panel_alt"])
+    cx = x
+    for header, w in zip(section["headers"], col_widths):
+        draw.text((cx + COL_PAD, header_top + ROW_HEIGHT / 2), header, font=header_font, fill=COLORS["text_dim"], anchor="lm")
+        cx += w + COL_PAD * 2
+
+    row_y = header_top + ROW_HEIGHT
+    for ri, row in enumerate(section["rows"]):
+        if ri % 2 == 1:
+            draw.rectangle([x, row_y, x + total_w, row_y + ROW_HEIGHT], fill=COLORS["stripe"])
+        cx = x
+        for cell, w in zip(row, col_widths):
+            draw.text(
+                (cx + COL_PAD, row_y + ROW_HEIGHT / 2),
+                _cell_text(cell),
+                font=cell_font,
+                fill=_cell_color(cell),
+                anchor="lm",
+            )
+            cx += w + COL_PAD * 2
+        row_y += ROW_HEIGHT
+
+    draw.rectangle([x, header_top, x + total_w, row_y], outline=COLORS["border"], width=1)
+    return total_w, row_y
+
+
 def render_tables(title: str, sections: list[dict]) -> bytes:
     """sections: [{"heading": str | None, "headers": [str, ...], "rows": [[cell, ...], ...]}]
-    A cell is a plain value or {"text": str, "color": (r,g,b)}. Returns PNG bytes."""
+    A cell is a plain value or {"text": str, "color": (r,g,b)}. Stacks sections
+    vertically. Returns PNG bytes."""
     header_font = _load_font(True, HEADER_FONT_SIZE)
     cell_font = _load_font(False, CELL_FONT_SIZE)
     title_font = _load_font(True, TITLE_FONT_SIZE)
@@ -103,11 +156,10 @@ def render_tables(title: str, sections: list[dict]) -> bytes:
 
     col_widths_by_section: list[list[int]] = [[] for _ in sections]
     for headers, idxs in groups.items():
-        widths = [_text_width(mdraw, h, header_font) for h in headers]
-        for i in idxs:
-            for row in sections[i]["rows"]:
-                for ci, cell in enumerate(row):
-                    widths[ci] = max(widths[ci], _text_width(mdraw, _cell_text(cell), cell_font))
+        widths = _section_col_widths(mdraw, sections[idxs[0]], header_font, cell_font)
+        for i in idxs[1:]:
+            other = _section_col_widths(mdraw, sections[i], header_font, cell_font)
+            widths = [max(a, b) for a, b in zip(widths, other)]
         for i in idxs:
             col_widths_by_section[i] = widths
 
@@ -117,53 +169,57 @@ def render_tables(title: str, sections: list[dict]) -> bytes:
 
     height = PADDING * 2 + TITLE_HEIGHT
     for i, section in enumerate(sections):
-        if section.get("heading"):
-            height += SUBHEADER_HEIGHT
-        height += ROW_HEIGHT * (len(section["rows"]) + 1)
+        height += _section_height(section)
         if i < len(sections) - 1:
             height += SECTION_GAP
 
     img = Image.new("RGB", (width, height), COLORS["panel"])
     draw = ImageDraw.Draw(img)
 
-    y = PADDING
-    draw.text((PADDING, y), title, font=title_font, fill=COLORS["text"])
-    y += TITLE_HEIGHT
+    draw.text((PADDING, PADDING), title, font=title_font, fill=COLORS["text"])
+    y = PADDING + TITLE_HEIGHT
 
     for i, section in enumerate(sections):
-        if section.get("heading"):
-            draw.text((PADDING, y), section["heading"], font=subheader_font, fill=COLORS["accent"])
-            y += SUBHEADER_HEIGHT
-
-        col_widths = col_widths_by_section[i]
-        total_w = sum(w + COL_PAD * 2 for w in col_widths)
-
-        draw.rectangle([PADDING, y, PADDING + total_w, y + ROW_HEIGHT], fill=COLORS["panel_alt"])
-        x = PADDING
-        for header, w in zip(section["headers"], col_widths):
-            draw.text((x + COL_PAD, y + ROW_HEIGHT / 2), header, font=header_font, fill=COLORS["text_dim"], anchor="lm")
-            x += w + COL_PAD * 2
-
-        row_y = y + ROW_HEIGHT
-        for ri, row in enumerate(section["rows"]):
-            if ri % 2 == 1:
-                draw.rectangle([PADDING, row_y, PADDING + total_w, row_y + ROW_HEIGHT], fill=COLORS["stripe"])
-            x = PADDING
-            for cell, w in zip(row, col_widths):
-                draw.text(
-                    (x + COL_PAD, row_y + ROW_HEIGHT / 2),
-                    _cell_text(cell),
-                    font=cell_font,
-                    fill=_cell_color(cell),
-                    anchor="lm",
-                )
-                x += w + COL_PAD * 2
-            row_y += ROW_HEIGHT
-
-        draw.rectangle([PADDING, y, PADDING + total_w, row_y], outline=COLORS["border"], width=1)
-        y = row_y
+        _, y = _draw_table(draw, PADDING, y, section, col_widths_by_section[i], header_font, cell_font, subheader_font)
         if i < len(sections) - 1:
             y += SECTION_GAP
+
+    buf = io.BytesIO()
+    img.save(buf, format="PNG")
+    return buf.getvalue()
+
+
+def render_tables_columns(title: str, sections: list[dict], gap: int = 40) -> bytes:
+    """Same as render_tables but lays sections out side-by-side horizontally
+    instead of stacked. Discord scales embed images down to fit a height cap
+    while preserving aspect ratio, so a tall stacked image (e.g. two full
+    rosters, one under the other) ends up rendered much narrower in the chat
+    than a wide-and-short one with the exact same content. Returns PNG bytes."""
+    header_font = _load_font(True, HEADER_FONT_SIZE)
+    cell_font = _load_font(False, CELL_FONT_SIZE)
+    title_font = _load_font(True, TITLE_FONT_SIZE)
+    subheader_font = _load_font(True, SUBHEADER_FONT_SIZE)
+
+    measure_img = Image.new("RGB", (1, 1))
+    mdraw = ImageDraw.Draw(measure_img)
+
+    col_widths_by_section = [_section_col_widths(mdraw, s, header_font, cell_font) for s in sections]
+    section_widths = [sum(w + COL_PAD * 2 for w in cw) for cw in col_widths_by_section]
+    section_heights = [_section_height(s) for s in sections]
+
+    width = sum(section_widths) + gap * (len(sections) - 1) + PADDING * 2
+    height = PADDING * 2 + TITLE_HEIGHT + max(section_heights)
+
+    img = Image.new("RGB", (width, height), COLORS["panel"])
+    draw = ImageDraw.Draw(img)
+
+    draw.text((PADDING, PADDING), title, font=title_font, fill=COLORS["text"])
+    top = PADDING + TITLE_HEIGHT
+
+    x = PADDING
+    for i, section in enumerate(sections):
+        _draw_table(draw, x, top, section, col_widths_by_section[i], header_font, cell_font, subheader_font)
+        x += section_widths[i] + gap
 
     buf = io.BytesIO()
     img.save(buf, format="PNG")

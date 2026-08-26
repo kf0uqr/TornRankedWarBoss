@@ -26,7 +26,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 from backend import db  # noqa: E402
 from bot import decay  # noqa: E402
 from bot import format as fmt  # noqa: E402
-from bot.render import render_tables  # noqa: E402
+from bot.render import render_tables, render_tables_columns  # noqa: E402
 
 APP_BASE_URL = "http://localhost:8787"
 WAR_STATUS_REFRESH_MINUTES = 5
@@ -200,7 +200,10 @@ def build_war_status_message(data: dict) -> tuple[discord.Embed, discord.File]:
     enemy_rows = [fmt.war_status_row(m) for m in members]
     own_members = sorted(data.get("own_members", []), key=fmt.own_war_sort_key)
     own_rows = [fmt.own_war_row(m) for m in own_members]
-    png = render_tables(
+    # Side-by-side, not stacked - a stacked two-roster image comes out tall and
+    # narrow, and Discord's embed image scaling shrinks a tall image's apparent
+    # width a lot more than a wide-and-short one with the same content.
+    png = render_tables_columns(
         f"Current War - vs {war['opponent_name']}",
         [
             {"heading": "Enemy Roster", "headers": fmt.WAR_STATUS_HEADERS, "rows": enemy_rows},
