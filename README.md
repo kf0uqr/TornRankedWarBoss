@@ -10,7 +10,7 @@ A local web app for managing [Torn](https://www.torn.com) faction ranked wars: i
 - **Armory restock** — tracks target stock levels (editable per item) against live on-hand quantities and market prices, and folds the restock cost into the paysheet automatically.
 - **Payroll helper (Tampermonkey)** — Torn's API has no way to actually send money, so a companion userscript (`tampermonkey/torn-war-manager-payroll.user.js`) adds a panel to Torn's own faction "Give to User" page that fills in the player, "Add to balance", and amount for you from the app's paysheet. It never clicks Torn's own submit button — you always confirm the real transfer yourself, then mark it paid in the panel.
 - **Pooled API keys** — Torn caps each key at 100 requests/minute. Add more keys in Settings (e.g. from other faction members) and the app round-robins requests across all of them, multiplying your effective throughput.
-- **Discord bot** — read-only slash commands (`/wars`, `/paysheet`, `/stats`, `/career`, `/armory`) so leadership can check things from Discord without needing access to the machine running the app. No port forwarding or router changes needed — see below.
+- **Discord bot** — read-only slash commands (`/wars`, `/paysheet`, `/stats`, `/career`, `/armory`, `/current_war`) so leadership can check things from Discord without needing access to the machine running the app. `/current_war` posts a live enemy-roster status board for the active ranked war and keeps editing it in place every few minutes. No port forwarding or router changes needed — see below.
 
 ## Requirements
 
@@ -56,7 +56,9 @@ The script only talks to `http://localhost:8787` (your own machine) and never to
 
 ## Discord bot (optional)
 
-Lets leadership run read-only commands from Discord — `/wars`, `/paysheet [war_id]`, `/stats [war_id]`, `/career`, `/armory` — without needing to reach the app itself. It works entirely over an **outbound** connection to Discord (same as every Discord bot), so it needs no inbound port, no port forwarding, and no router changes at all. It talks to the app over plain `localhost`, since both run on your machine.
+Lets leadership run read-only commands from Discord — `/wars`, `/paysheet [war_id]`, `/stats [war_id]`, `/career`, `/armory`, `/current_war` — without needing to reach the app itself. It works entirely over an **outbound** connection to Discord (same as every Discord bot), so it needs no inbound port, no port forwarding, and no router changes at all. It talks to the app over plain `localhost`, since both run on your machine.
+
+`/current_war` posts an enemy-roster status board (level, status, last action, position, wall/revivable flags) for whichever ranked war is currently active, then edits that same message in place every 5 minutes for as long as the war runs. Note: Torn's API doesn't expose enemy battle stats (that needs a spy report), so a true Fair Fight score isn't available here — level and status are the closest useful stand-in. The board stops updating on its own once the war ends; run `/current_war` again for the next one.
 
 1. Go to [discord.com/developers/applications](https://discord.com/developers/applications) → **New Application** → give it a name → **Bot** tab → **Reset Token** to reveal it, copy it.
 2. Under **OAuth2 → URL Generator**, check **both** `bot` and `applications.commands`, then open the generated URL to invite it to your server. If you only check `bot`, the bot joins fine but slash commands fail to register with a `403 Forbidden` error — if you hit that, re-generate the URL with both boxes checked and re-invite it (re-inviting with the extra scope is safe, it won't duplicate the bot).

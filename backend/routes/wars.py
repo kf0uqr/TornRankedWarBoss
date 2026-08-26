@@ -60,6 +60,42 @@ def available_wars():
     return result
 
 
+@router.get("/current")
+def current_war():
+    """The faction's currently-active ranked war (if any), plus the enemy
+    faction's live roster - status/level/last-action, for a war-room view.
+    Unlike the rest of this router, this never touches the local DB: it's
+    meant to work before a war is synced (or ever synced) into `wars`."""
+    faction_id = require_faction_id()
+    client = require_client()
+    try:
+        wars = client.faction_rankedwars(faction_id, limit=5)
+        current = next((w for w in wars if w["end"] == 0), None)
+        if current is None:
+            return {"war": None, "members": []}
+
+        own = next(f for f in current["factions"] if f["id"] == faction_id)
+        opponent = next(f for f in current["factions"] if f["id"] != faction_id)
+        members = client.faction_members(opponent["id"])
+    except TornAPIError as exc:
+        raise torn_error_to_http(exc)
+    finally:
+        client.close()
+
+    return {
+        "war": {
+            "id": current["id"],
+            "start": current["start"],
+            "target": current["target"],
+            "own_score": own["score"],
+            "opponent_id": opponent["id"],
+            "opponent_name": opponent["name"],
+            "opponent_score": opponent["score"],
+        },
+        "members": members,
+    }
+
+
 @router.get("")
 def list_wars():
     conn = db.get_connection()

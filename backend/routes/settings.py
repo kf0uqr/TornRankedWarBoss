@@ -33,6 +33,12 @@ class DiscordAllowedUserIn(BaseModel):
     label: str | None = None
 
 
+class DiscordWarStatusIn(BaseModel):
+    war_id: int
+    channel_id: str
+    message_id: str
+
+
 def _mask(value: str) -> str:
     return "•" * max(len(value) - 4, 0) + value[-4:] if len(value) > 4 else "•" * len(value)
 
@@ -111,6 +117,32 @@ def add_discord_allowed_user(body: DiscordAllowedUserIn):
 def delete_discord_allowed_user(entry_id: int):
     db.remove_discord_allowed_user(entry_id)
     return _discord_allowed_users_out()
+
+
+@router.get("/discord-war-status")
+def get_discord_war_status():
+    war_id = db.get_setting("discord_war_status_war_id")
+    return {
+        "war_id": int(war_id) if war_id else None,
+        "channel_id": db.get_setting("discord_war_status_channel_id"),
+        "message_id": db.get_setting("discord_war_status_message_id"),
+    }
+
+
+@router.post("/discord-war-status")
+def set_discord_war_status(body: DiscordWarStatusIn):
+    db.set_setting("discord_war_status_war_id", str(body.war_id))
+    db.set_setting("discord_war_status_channel_id", body.channel_id)
+    db.set_setting("discord_war_status_message_id", body.message_id)
+    return get_discord_war_status()
+
+
+@router.delete("/discord-war-status")
+def clear_discord_war_status():
+    db.set_setting("discord_war_status_war_id", "")
+    db.set_setting("discord_war_status_channel_id", "")
+    db.set_setting("discord_war_status_message_id", "")
+    return get_discord_war_status()
 
 
 @router.get("/rank-pay-rates")

@@ -3,6 +3,8 @@ frontend/app.js's paysheetRowCells/statsRowCells etc. Kept in sync by hand,
 same caveat as bot/render.py.
 """
 
+import time
+
 from bot.render import COLORS
 
 PAYSHEET_HEADERS = [
@@ -22,6 +24,26 @@ CAREER_HEADERS = [
 ]
 
 ARMORY_HEADERS = ["Item", "Target Qty", "On Hand", "Needed", "Unit Price", "Cost"]
+
+# Torn's own /faction/{id}/rankedwarreport doesn't expose battle stats for an
+# enemy faction (that needs a spy report), so a real Fair Fight score isn't
+# obtainable here - level/status/last-action are the closest useful proxy the
+# public API gives us for "is this person worth hitting right now".
+WAR_STATUS_HEADERS = ["Name", "Level", "Status", "Last Action", "Position", "On Wall", "Revivable"]
+
+STATUS_COLOR_MAP = {
+    "green": COLORS["good"],
+    "red": COLORS["bad"],
+    "yellow": COLORS["warn"],
+    "blue": COLORS["accent"],
+}
+
+
+def _format_duration(seconds: int) -> str:
+    seconds = max(seconds, 0)
+    hours, rem = divmod(seconds, 3600)
+    minutes, _ = divmod(rem, 60)
+    return f"{hours}h{minutes}m" if hours else f"{minutes}m"
 
 
 def money(n) -> str:
@@ -111,3 +133,29 @@ def armory_totals_row(lines: list) -> list:
         {"text": "Total", "color": COLORS["text"]}, "", "", "",
         "", money(sum(l["cost"] for l in lines)),
     ]
+
+
+def war_status_row(m) -> list:
+    status = m["status"]
+    status_text = status["description"] or status["state"]
+    if status.get("until"):
+        remaining = status["until"] - int(time.time())
+        if remaining > 0:
+            status_text += f" ({_format_duration(remaining)})"
+    la = m["last_action"]
+    return [
+        m["name"],
+        str(m["level"]),
+        {"text": status_text, "color": STATUS_COLOR_MAP.get(status.get("color"), COLORS["text"])},
+        la["relative"],
+        m.get("position") or "-",
+        "Yes" if m.get("is_on_wall") else "No",
+        "Yes" if m.get("is_revivable") else "No",
+    ]
+
+
+def war_status_sort_key(m):
+    """Okay (attackable) members first, then everyone else grouped by status,
+    highest level first within each group - the people worth looking at first."""
+    is_okay = m["status"].get("state") == "Okay"
+    return (0 if is_okay else 1, -(m["level"] or 0))

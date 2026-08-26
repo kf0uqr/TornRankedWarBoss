@@ -19,6 +19,7 @@ from pathlib import Path
 import discord
 import httpx
 from discord import app_commands
+from discord.ext import tasks
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 from backend import db  # noqa: E402
@@ -26,6 +27,7 @@ from bot import format as fmt  # noqa: E402
 from bot.render import render_tables  # noqa: E402
 
 APP_BASE_URL = "http://localhost:8787"
+WAR_STATUS_REFRESH_MINUTES = 5
 
 
 class TornBossClient(discord.Client):
@@ -65,6 +67,20 @@ async def api_get(path: str) -> dict:
         return resp.json()
 
 
+async def api_post(path: str, json: dict) -> dict:
+    async with httpx.AsyncClient(base_url=APP_BASE_URL, timeout=20) as client:
+        resp = await client.post(path, json=json)
+        resp.raise_for_status()
+        return resp.json()
+
+
+async def api_delete(path: str) -> dict:
+    async with httpx.AsyncClient(base_url=APP_BASE_URL, timeout=20) as client:
+        resp = await client.delete(path)
+        resp.raise_for_status()
+        return resp.json()
+
+
 async def most_recent_war_id() -> int | None:
     wars = await api_get("/api/wars")
     return wars[0]["id"] if wars else None
@@ -78,6 +94,21 @@ def table_block(rows: list[str], header: str | None = None) -> str:
 
 def image_file(png_bytes: bytes, filename: str) -> discord.File:
     return discord.File(io.BytesIO(png_bytes), filename=filename)
+
+
+def build_war_status_message(data: dict) -> tuple[discord.Embed, discord.File]:
+    war = data["war"]
+    members = sorted(data["members"], key=fmt.war_status_sort_key)
+
+    embed = discord.Embed(title=f"Current War - vs {war['opponent_name']}", color=0x5DA9FF)
+    embed.add_field(name="Score", value=f"{war['own_score']} - {war['opponent_score']} (target {war['target']})")
+    okay_count = sum(1 for m in members if m["status"]["state"] == "Okay")
+    embed.add_field(name="Attackable Now", value=f"{okay_count} / {len(members)}")
+    embed.set_footer(text=f"Auto-updates every {WAR_STATUS_REFRESH_MINUTES} min while this war is active")
+
+    rows = [fmt.war_status_row(m) for m in members]
+    png = render_tables(f"Enemy Roster - {war['opponent_name']}", [{"heading": None, "headers": fmt.WAR_STATUS_HEADERS, "rows": rows}])
+    return embed, image_file(png, "war_status.png")
 
 
 @bot.event
@@ -105,6 +136,8 @@ async def on_ready():
     else:
         await bot.tree.sync()
     print(f"Logged in as {bot.user} - commands synced {synced_where}")
+    if not refresh_war_status.is_running():
+        refresh_war_status.start()
 
 
 @bot.tree.command(name="wars", description="List synced ranked wars")
@@ -122,6 +155,35 @@ async def wars_command(interaction: discord.Interaction):
         return
     rows = [f"{w['id']:<10} vs {w['opponent_name'] or '?'}" for w in wars[:15]]
     await interaction.followup.send(table_block(rows, header=f"{'War ID':<10} Opponent"))
+
+
+@bot.tree.command(name="current_war", description="Post a live-updating status board for the current ranked war's enemy roster")
+async def current_war_command(interaction: discord.Interaction):
+    if not await ensure_allowed(interaction):
+        return
+    if interaction.channel is None:
+        await interaction.response.send_message("This command needs to be run in a channel.", ephemeral=True)
+        return
+    await interaction.response.defer()
+    try:
+        data = await api_get("/api/wars/current")
+    except Exception as e:
+        await interaction.followup.send(f"Couldn't reach the app: {e}")
+        return
+    if data["war"] is None:
+        await interaction.followup.send("No active ranked war right now.")
+        return
+
+    embed, file = build_war_status_message(data)
+    message = await interaction.channel.send(embed=embed, file=file)
+    await api_post(
+        "/api/settings/discord-war-status",
+        {"war_id": data["war"]["id"], "channel_id": str(message.channel.id), "message_id": str(message.id)},
+    )
+    await interaction.followup.send(
+        f"Posted - I'll refresh it every {WAR_STATUS_REFRESH_MINUTES} minutes while this war is active.",
+        ephemeral=True,
+    )
 
 
 @bot.tree.command(name="paysheet", description="Show the paysheet for a war (defaults to most recent)")
@@ -232,6 +294,43 @@ async def armory_command(interaction: discord.Interaction):
     rows = [fmt.armory_row(l) for l in needed] + [fmt.armory_totals_row(needed)]
     png = render_tables(embed.title, [{"heading": None, "headers": fmt.ARMORY_HEADERS, "rows": rows}])
     await interaction.followup.send(embed=embed, file=image_file(png, "armory.png"))
+
+
+@tasks.loop(minutes=WAR_STATUS_REFRESH_MINUTES)
+async def refresh_war_status():
+    ref = await api_get("/api/settings/discord-war-status")
+    if not ref.get("message_id"):
+        return
+
+    channel_id = int(ref["channel_id"])
+    message_id = int(ref["message_id"])
+    try:
+        channel = bot.get_channel(channel_id) or await bot.fetch_channel(channel_id)
+        message = await channel.fetch_message(message_id)
+    except (discord.NotFound, discord.Forbidden):
+        # Message or channel is gone - stop chasing it until /current_war is run again.
+        await api_delete("/api/settings/discord-war-status")
+        return
+
+    try:
+        data = await api_get("/api/wars/current")
+    except Exception as e:
+        print(f"current_war refresh: couldn't reach the app: {e}")
+        return
+
+    war = data["war"]
+    if war is None or war["id"] != ref["war_id"]:
+        await message.edit(content="*This war has ended - the status board is no longer being updated.*")
+        await api_delete("/api/settings/discord-war-status")
+        return
+
+    embed, file = build_war_status_message(data)
+    await message.edit(embed=embed, attachments=[file])
+
+
+@refresh_war_status.before_loop
+async def before_refresh_war_status():
+    await bot.wait_until_ready()
 
 
 def main():
