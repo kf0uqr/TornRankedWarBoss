@@ -110,7 +110,13 @@ def build_war_status_message(data: dict) -> tuple[discord.Embed, discord.File]:
     # accurate, so hospital releases show up here instead of only in the image.
     hospitalized = sorted((m for m in members if m["status"].get("until")), key=lambda m: m["status"]["until"])
     if hospitalized:
-        lines = [f"{m['name']} - <t:{m['status']['until']}:R>" for m in hospitalized[:20]]
+        # Torn's profile page shows its own live, second-precision countdown
+        # for the same release time - linking the name gets you that directly,
+        # since Discord's own timestamp markup only ever goes to the minute.
+        lines = [
+            f"[{m['name']}](https://www.torn.com/profiles.php?XID={m['id']}) - <t:{m['status']['until']}:R>"
+            for m in hospitalized[:20]
+        ]
         if len(hospitalized) > 20:
             lines.append(f"+{len(hospitalized) - 20} more")
         embed.add_field(name="In Hospital", value="\n".join(lines), inline=False)
