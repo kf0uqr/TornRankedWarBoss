@@ -93,9 +93,12 @@
     const panel = getPanel();
     if (!panel) return null;
     // Torn renders more than one .legacy-money-input in this panel (give-money vs
-    // add-to-balance modes); only one is ever visible at a time.
-    const candidates = Array.from(panel.querySelectorAll('input[data-testid="legacy-money-input"][type="text"]'));
-    return candidates.find((el) => el.offsetParent !== null) || null;
+    // add-to-balance modes; only one is ever visible at a time), and the visible
+    // (text) ones have no literal type="..." attribute at all - it's left to the
+    // browser's default, so filtering by the .type *property* (not a [type=...]
+    // CSS attribute selector, which only matches an explicit attribute) is required.
+    const candidates = Array.from(panel.querySelectorAll('input[data-testid="legacy-money-input"]'));
+    return candidates.find((el) => el.type === "text" && el.offsetParent !== null) || null;
   }
 
   async function fillFormForMember(member) {
@@ -193,11 +196,14 @@
       unpaid
         .map(
           (m) => `
-      <div class="twm-row" data-member="${m.member_id}">
-        <span class="twm-name" title="${m.name}">${m.name}</span>
-        <span class="twm-amount">${money(m.final_pay)}</span>
-        <button class="twm-primary" data-action="fill">Fill</button>
-        <button data-action="paid">Paid</button>
+      <div class="twm-row-wrap">
+        <div class="twm-row" data-member="${m.member_id}">
+          <span class="twm-name" title="${m.name}">${m.name}</span>
+          <span class="twm-amount">${money(m.final_pay)}</span>
+          <button class="twm-primary" data-action="fill">Fill</button>
+          <button data-action="paid">Paid</button>
+        </div>
+        <div class="twm-error" data-error-for="${m.member_id}"></div>
       </div>`
         )
         .join("");
@@ -207,13 +213,16 @@
         const row = btn.closest(".twm-row");
         const memberId = Number(row.dataset.member);
         const member = unpaid.find((m) => m.member_id === memberId);
+        const errorEl = row.parentElement.querySelector(`[data-error-for="${memberId}"]`);
+        errorEl.textContent = "";
+
         if (btn.dataset.action === "fill") {
           btn.textContent = "Filling...";
           try {
             await fillFormForMember(member);
             btn.textContent = "Filled";
           } catch (e) {
-            alert(e.message);
+            errorEl.textContent = e.message;
             btn.textContent = "Fill";
           }
         } else {
@@ -222,9 +231,9 @@
           }
           try {
             await api.markPaid(warId, memberId, true);
-            row.remove();
+            row.parentElement.remove();
           } catch (e) {
-            alert(e.message);
+            errorEl.textContent = e.message;
           }
         }
       });
