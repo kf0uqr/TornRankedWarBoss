@@ -21,7 +21,9 @@ def get_career_stats():
     conn = db.get_connection()
     try:
         rows = conn.execute(
-            "SELECT member_id, inside_hits, outside_hits, assist_hits, respect, respect_lost FROM war_members"
+            "SELECT member_id, inside_hits, outside_hits, assist_hits, respect, respect_lost, "
+            "best_hit, chain_respect_total, chain_hits_total, losses, escapes, draws, retaliation_hits, bonus_hits "
+            "FROM war_members"
         ).fetchall()
         war_member_rows = [dict(r) for r in rows]
     finally:

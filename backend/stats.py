@@ -114,8 +114,19 @@ def compute_career_stats(current_members: list[dict], war_member_rows: list[dict
             avg_hits = sum(r["inside_hits"] + r["outside_hits"] + r["assist_hits"] for r in rows) / wars_played
             avg_respect_gained = sum(r["respect"] for r in rows) / wars_played
             avg_respect_lost = sum(r["respect_lost"] for r in rows) / wars_played
+            avg_best_hit = sum(r["best_hit"] for r in rows) / wars_played
+            avg_retaliation_hits = sum(r["retaliation_hits"] for r in rows) / wars_played
+            avg_bonus_hits = sum(r["bonus_hits"] for r in rows) / wars_played
+            # Weighted across wars (sum of totals / sum of totals), not an average of
+            # per-war percentages/rates, so a single small-sample war doesn't skew it.
+            total_chain_hits = sum(r["chain_hits_total"] for r in rows)
+            avg_respect_per_hit = sum(r["chain_respect_total"] for r in rows) / total_chain_hits if total_chain_hits else 0.0
+            failed_attempts = sum(r["losses"] + r["escapes"] + r["draws"] for r in rows)
+            win_rate_pct = (total_chain_hits - failed_attempts) / total_chain_hits * 100 if total_chain_hits else 0.0
         else:
             avg_hits = avg_respect_gained = avg_respect_lost = 0.0
+            avg_best_hit = avg_respect_per_hit = win_rate_pct = 0.0
+            avg_retaliation_hits = avg_bonus_hits = 0.0
         results.append(
             {
                 "member_id": m["member_id"],
@@ -125,6 +136,11 @@ def compute_career_stats(current_members: list[dict], war_member_rows: list[dict
                 "avg_hits": avg_hits,
                 "avg_respect_gained": avg_respect_gained,
                 "avg_respect_lost": avg_respect_lost,
+                "avg_best_hit": avg_best_hit,
+                "avg_respect_per_hit": avg_respect_per_hit,
+                "win_rate_pct": win_rate_pct,
+                "avg_retaliation_hits": avg_retaliation_hits,
+                "avg_bonus_hits": avg_bonus_hits,
             }
         )
 
@@ -140,6 +156,18 @@ def compute_career_stats(current_members: list[dict], war_member_rows: list[dict
         r["avg_respect_gained_rank"] = avg_respect_gained_rank[r["member_id"]]
         r["avg_respect_lost_rank"] = avg_respect_lost_rank[r["member_id"]]
         r["score"] = r["avg_hits_rank"] + r["avg_respect_gained_rank"] + r["avg_respect_lost_rank"]
+
+    # Reference-only metrics, same as the per-war Player Stats page - not part of Score.
+    for key, descending in (
+        ("avg_best_hit", True),
+        ("avg_respect_per_hit", True),
+        ("win_rate_pct", True),
+        ("avg_retaliation_hits", True),
+        ("avg_bonus_hits", True),
+    ):
+        rank = _dense_rank([(r["member_id"], r[key]) for r in results], descending=descending)
+        for r in results:
+            r[f"{key}_rank"] = rank[r["member_id"]]
 
     overall_rank = _dense_rank([(r["member_id"], r["score"]) for r in results], descending=False)
     for r in results:

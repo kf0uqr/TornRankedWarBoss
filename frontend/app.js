@@ -868,6 +868,11 @@ const CAREER_STAT_TABS = [
   { key: "avg_hits", rankKey: "avg_hits_rank", label: "Avg Hits Made" },
   { key: "avg_respect_gained", rankKey: "avg_respect_gained_rank", label: "Avg Respect Gained" },
   { key: "avg_respect_lost", rankKey: "avg_respect_lost_rank", label: "Avg Respect Lost" },
+  { key: "avg_best_hit", rankKey: "avg_best_hit_rank", label: "Avg Best Hit" },
+  { key: "avg_respect_per_hit", rankKey: "avg_respect_per_hit_rank", label: "Avg Respect/Hit" },
+  { key: "win_rate_pct", rankKey: "win_rate_pct_rank", label: "Win Rate" },
+  { key: "avg_retaliation_hits", rankKey: "avg_retaliation_hits_rank", label: "Avg Retaliation Hits" },
+  { key: "avg_bonus_hits", rankKey: "avg_bonus_hits_rank", label: "Avg Bonus Hits" },
 ];
 
 async function renderCareerStats() {
@@ -891,6 +896,11 @@ async function renderCareerStats() {
         <td>${num(m.avg_hits, 1)} <span class="muted">(#${m.avg_hits_rank})</span></td>
         <td>${num(m.avg_respect_gained, 2)} <span class="muted">(#${m.avg_respect_gained_rank})</span></td>
         <td>${num(m.avg_respect_lost, 2)} <span class="muted">(#${m.avg_respect_lost_rank})</span></td>
+        <td>${num(m.avg_best_hit, 2)} <span class="muted">(#${m.avg_best_hit_rank})</span></td>
+        <td>${num(m.avg_respect_per_hit, 2)} <span class="muted">(#${m.avg_respect_per_hit_rank})</span></td>
+        <td>${num(m.win_rate_pct, 1)}% <span class="muted">(#${m.win_rate_pct_rank})</span></td>
+        <td>${num(m.avg_retaliation_hits, 2)} <span class="muted">(#${m.avg_retaliation_hits_rank})</span></td>
+        <td>${num(m.avg_bonus_hits, 2)} <span class="muted">(#${m.avg_bonus_hits_rank})</span></td>
         <td>${m.score}</td>
         <td><strong>#${m.overall_rank}</strong></td>
       </tr>`
@@ -902,6 +912,7 @@ async function renderCareerStats() {
           <tr>
             <th>Name</th><th>Position</th><th>Wars Played</th>
             <th>Avg Hits Made</th><th>Avg Respect Gained</th><th>Avg Respect Lost</th>
+            <th>Avg Best Hit</th><th>Avg Respect/Hit</th><th>Win Rate</th><th>Avg Retaliation Hits</th><th>Avg Bonus Hits</th>
             <th>Score</th><th>Overall Rank</th>
           </tr>
         </thead>
@@ -915,7 +926,7 @@ async function renderCareerStats() {
       <div class="row between">
         <h2>Player Stats</h2>
       </div>
-      <p class="muted">Per-war averages across every synced war, for everyone currently in the faction.</p>
+      <p class="muted">Per-war averages across every synced war, for everyone currently in the faction. Score/Overall Rank are Avg Hits + Avg Respect Gained + Avg Respect Lost, summed and re-ranked. The rest are shown for reference and aren't part of the Score yet.</p>
       <div class="row" id="career-stat-tabs" style="margin-bottom:14px">
         ${CAREER_STAT_TABS.map(
           (t) => `<button class="tab-btn ${t.key === state.statsMetric ? "active" : ""}" data-metric="${t.key}">${t.label}</button>`
