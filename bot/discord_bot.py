@@ -92,6 +92,24 @@ async def most_recent_war_id() -> int | None:
     return wars[0]["id"] if wars else None
 
 
+async def sync_travel_observations(war_id: int, members: list[dict]) -> dict:
+    """Feeds this poll's roster into the travel tracker, ships off any
+    completed flights it detected, and pulls back the current observed-average
+    estimates for build_enemy_status_message to use in place of the hardcoded
+    standard-time table wherever there's enough data."""
+    completed = _travel_tracker.record(war_id, members)
+    for obs in completed:
+        try:
+            await api_post("/api/travel-observations", obs)
+        except Exception as e:
+            print(f"Failed to log travel observation for {obs.get('member_name')}: {e}")
+    try:
+        return await api_get("/api/travel-observations/estimates")
+    except Exception as e:
+        print(f"Failed to fetch travel estimates: {e}")
+        return {}
+
+
 def table_block(rows: list[str], header: str | None = None) -> str:
     lines = ([header] if header else []) + rows
     text = "```\n" + "\n".join(lines) + "\n```"
@@ -171,7 +189,7 @@ def _auto_update_description() -> str:
     return f"Auto-updates every {WAR_STATUS_REFRESH_MINUTES} min while this war is active"
 
 
-def build_enemy_status_message(data: dict) -> tuple[discord.Embed, discord.File]:
+def build_enemy_status_message(data: dict, travel_overrides: dict | None = None) -> tuple[discord.Embed, discord.File]:
     war = data["war"]
     members = sorted(data["members"], key=fmt.war_status_sort_key)
 
@@ -202,13 +220,13 @@ def build_enemy_status_message(data: dict) -> tuple[discord.Embed, discord.File]
     # Torn's API doesn't give an exact arrival time, but this board refreshes
     # every 5 minutes - so a member's takeoff (first observed "Traveling") is
     # known accurate to within that window, and estimated arrival = takeoff +
-    # standard travel duration for their destination (70% of that if they own
-    # a Private Island - private jet access). See bot/travel.py for the
-    # (unavoidable) remaining assumptions this makes.
-    _travel_tracker.record(war["id"], members)
+    # a travel duration for their destination (standard, 70% of standard for a
+    # Private Island owner, or an observed average once sync_travel_observations
+    # has logged enough real flights - see bot/travel.py for the remaining,
+    # unavoidable assumptions this makes).
     landings = []
     for m in members:
-        arrival = _travel_tracker.estimated_arrival(m["id"])
+        arrival = _travel_tracker.estimated_arrival(m["id"], travel_overrides)
         if arrival:
             landings.append((m, arrival))
     if landings:
@@ -305,9 +323,11 @@ async def current_war_command(interaction: discord.Interaction):
         await interaction.followup.send("No active ranked war right now.")
         return
 
+    travel_overrides = await sync_travel_observations(data["war"]["id"], data["members"])
+
     # Two separate posts, not one combined image - each renders as large as
     # Discord will show it, instead of both being squeezed into a shared image.
-    enemy_embed, enemy_file = build_enemy_status_message(data)
+    enemy_embed, enemy_file = build_enemy_status_message(data, travel_overrides)
     enemy_message = await interaction.channel.send(embed=enemy_embed, file=enemy_file)
     own_embed, own_file = build_own_status_message(data)
     own_message = await interaction.channel.send(embed=own_embed, file=own_file)
@@ -468,7 +488,8 @@ async def refresh_war_status():
         await api_delete("/api/settings/discord-war-status")
         return
 
-    enemy_embed, enemy_file = build_enemy_status_message(data)
+    travel_overrides = await sync_travel_observations(war["id"], data["members"])
+    enemy_embed, enemy_file = build_enemy_status_message(data, travel_overrides)
     await enemy_message.edit(embed=enemy_embed, attachments=[enemy_file])
     own_embed, own_file = build_own_status_message(data)
     await own_message.edit(embed=own_embed, attachments=[own_file])

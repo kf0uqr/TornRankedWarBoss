@@ -114,6 +114,18 @@ CREATE TABLE IF NOT EXISTS expense_lines (
     label TEXT NOT NULL,
     amount REAL NOT NULL DEFAULT 0
 );
+
+CREATE TABLE IF NOT EXISTS travel_observations (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    member_id INTEGER NOT NULL,
+    member_name TEXT,
+    destination TEXT NOT NULL,
+    has_private_island INTEGER NOT NULL DEFAULT 0,
+    takeoff_at INTEGER NOT NULL,
+    landing_at INTEGER NOT NULL,
+    duration_seconds INTEGER NOT NULL,
+    recorded_at INTEGER NOT NULL
+);
 """
 
 
@@ -349,3 +361,73 @@ def remove_discord_allowed_user(entry_id: int) -> None:
         conn.commit()
     finally:
         conn.close()
+
+
+def add_travel_observation(
+    member_id: int,
+    member_name: str | None,
+    destination: str,
+    has_private_island: bool,
+    takeoff_at: int,
+    landing_at: int,
+) -> None:
+    conn = get_connection()
+    try:
+        conn.execute(
+            """
+            INSERT INTO travel_observations
+                (member_id, member_name, destination, has_private_island, takeoff_at, landing_at, duration_seconds, recorded_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                member_id,
+                member_name,
+                destination,
+                1 if has_private_island else 0,
+                takeoff_at,
+                landing_at,
+                landing_at - takeoff_at,
+                int(time.time()),
+            ),
+        )
+        conn.commit()
+    finally:
+        conn.close()
+
+
+def list_travel_observations(limit: int = 200) -> list[dict]:
+    conn = get_connection()
+    try:
+        rows = conn.execute(
+            "SELECT * FROM travel_observations ORDER BY recorded_at DESC LIMIT ?", (limit,)
+        ).fetchall()
+        return [dict(r) for r in rows]
+    finally:
+        conn.close()
+
+
+def get_travel_estimates() -> dict[str, dict]:
+    """Observed avg duration (minutes) + sample count per destination, split
+    by Private Island status - raw aggregates only, no minimum-sample
+    filtering (that's the bot's call, since it's the one deciding whether to
+    trust these over its hardcoded standard-time table)."""
+    conn = get_connection()
+    try:
+        rows = conn.execute(
+            """
+            SELECT destination, has_private_island,
+                   AVG(duration_seconds) / 60.0 AS avg_minutes,
+                   COUNT(*) AS sample_count
+            FROM travel_observations
+            GROUP BY destination, has_private_island
+            """
+        ).fetchall()
+    finally:
+        conn.close()
+
+    estimates: dict[str, dict] = {}
+    for r in rows:
+        entry = estimates.setdefault(r["destination"], {})
+        key = "private_island" if r["has_private_island"] else "standard"
+        entry[key] = {"avg_minutes": r["avg_minutes"], "sample_count": r["sample_count"]}
+    return estimates
