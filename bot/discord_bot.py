@@ -100,6 +100,17 @@ def image_file(png_bytes: bytes, filename: str) -> discord.File:
     return discord.File(io.BytesIO(png_bytes), filename=filename)
 
 
+def _decay_timestamp(seconds_remaining: float | None) -> str:
+    """Discord's <t:...:R> markup ticks down live in every viewer's client -
+    same trick as the hospital timers - so this needs no re-render to stay
+    accurate between the board's 5-minute refreshes."""
+    if seconds_remaining is None:
+        return "-"
+    if seconds_remaining <= 0:
+        return "Decayed out"
+    return f"<t:{int(time.time() + seconds_remaining)}:R>"
+
+
 def _add_decay_fields(embed: discord.Embed, war: dict) -> None:
     """War-decay countdown, catch-up rate, and max-payout threshold - ported
     from a faction leader's own Tampermonkey "War Decay Timer" script. See
@@ -111,7 +122,7 @@ def _add_decay_fields(embed: discord.Embed, war: dict) -> None:
 
     embed.add_field(
         name="War Decay Countdown",
-        value=f"Us: {decay.format_duration(own_seconds)}\nThem: {decay.format_duration(opp_seconds)}",
+        value=f"Us: {_decay_timestamp(own_seconds)}\nThem: {_decay_timestamp(opp_seconds)}",
     )
 
     _score_history.record(war["id"], war["own_score"], war["opponent_score"])

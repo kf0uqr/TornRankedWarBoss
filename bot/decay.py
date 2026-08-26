@@ -48,18 +48,6 @@ def compute_seconds_remaining(current_target: float, current_score: float, elaps
     return hours_until_gap_closes * 3600
 
 
-def format_duration(total_seconds: float | None) -> str:
-    if total_seconds is None:
-        return "-"
-    if total_seconds <= 0:
-        return "Decayed out"
-    total_seconds = int(total_seconds)
-    days, rem = divmod(total_seconds, 86400)
-    hours, rem = divmod(rem, 3600)
-    minutes, seconds = divmod(rem, 60)
-    return f"{days}d {hours:02d}:{minutes:02d}:{seconds:02d}"
-
-
 class ScoreHistory:
     """Rolling per-war score samples for computing each side's observed
     score/hour pace. In-memory per bot process, keyed to the active war id -
