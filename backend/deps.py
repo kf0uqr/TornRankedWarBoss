@@ -5,10 +5,10 @@ from backend.torn_api import TornClient, TornAPIError
 
 
 def require_client() -> TornClient:
-    api_key = db.get_api_key()
-    if not api_key:
+    api_keys = db.get_api_keys()
+    if not api_keys:
         raise HTTPException(status_code=400, detail="No Torn API key configured. Set one in Settings first.")
-    return TornClient(api_key)
+    return TornClient(api_keys)
 
 
 def require_faction_id() -> int:

@@ -333,16 +333,46 @@ async function renderSettings() {
   const root = document.getElementById("tab-settings");
   const settings = await api("/api/settings");
   const rates = await api("/api/settings/rank-pay-rates");
+  const apiKeys = await api("/api/settings/api-keys");
 
   root.innerHTML = `
     <div class="card">
-      <h2>Torn API</h2>
+      <h2>Faction</h2>
       <div class="row">
-        <label>API Key<br/><input type="password" id="api-key" placeholder="${settings.has_api_key ? "•••••••• (already set)" : "enter key"}" style="width:280px" /></label>
         <label>Faction ID<br/><input type="number" id="faction-id" value="${settings.faction_id ?? ""}" style="width:120px" /></label>
-        <button class="action" id="save-settings" style="align-self:flex-end">Save</button>
+        <button class="action" id="save-faction-id" style="align-self:flex-end">Save</button>
       </div>
-      <p class="muted">Stored locally in config.json / the sqlite db on this machine only, sent only to api.torn.com.</p>
+    </div>
+
+    <div class="card">
+      <h2>Torn API Keys</h2>
+      <p class="muted">
+        Torn caps each key at 100 requests/minute (this app self-limits to 75/key to stay safe). Adding more
+        keys - e.g. from other faction members - pools their budgets together for more total throughput.
+        Each key needs at least <strong>Limited</strong> access, and should belong to a member of this faction
+        (some endpoints are scoped to "my faction", not an explicit faction ID).
+      </p>
+      <table>
+        <thead><tr><th>Label</th><th>Key</th><th></th></tr></thead>
+        <tbody id="api-key-rows">
+          ${apiKeys
+            .map(
+              (k) => `
+            <tr>
+              <td>${k.label || "-"}</td>
+              <td class="muted">${k.masked_key}</td>
+              <td><button class="danger" data-del-key="${k.id}">Remove</button></td>
+            </tr>`
+            )
+            .join("") || `<tr><td colspan="3" class="muted">No keys added yet.</td></tr>`}
+        </tbody>
+      </table>
+      <div class="row" style="margin-top:10px">
+        <input type="password" id="new-api-key" placeholder="Torn API key" style="width:220px" />
+        <input id="new-api-key-label" placeholder="Label (e.g. a player's name)" style="width:200px" />
+        <button class="action" id="add-api-key">Add Key</button>
+      </div>
+      <p class="muted">Stored locally in the sqlite db on this machine only, sent only to api.torn.com.</p>
     </div>
 
     <div class="card">
@@ -396,15 +426,28 @@ async function renderSettings() {
     renderSettings();
   });
 
-  root.querySelector("#save-settings").addEventListener("click", async () => {
-    const body = {};
-    const key = root.querySelector("#api-key").value.trim();
+  root.querySelector("#save-faction-id").addEventListener("click", async () => {
     const fid = root.querySelector("#faction-id").value.trim();
-    if (key) body.api_key = key;
-    if (fid) body.faction_id = Number(fid);
-    await api("/api/settings", { method: "POST", body: JSON.stringify(body) });
-    toast("Settings saved");
+    if (!fid) return;
+    await api("/api/settings", { method: "POST", body: JSON.stringify({ faction_id: Number(fid) }) });
+    toast("Faction ID saved");
     renderSettings();
+  });
+
+  root.querySelector("#add-api-key").addEventListener("click", async () => {
+    const key = root.querySelector("#new-api-key").value.trim();
+    const label = root.querySelector("#new-api-key-label").value.trim();
+    if (!key) return;
+    await api("/api/settings/api-keys", { method: "POST", body: JSON.stringify({ api_key: key, label: label || null }) });
+    toast("API key added");
+    renderSettings();
+  });
+
+  root.querySelectorAll("[data-del-key]").forEach((btn) => {
+    btn.addEventListener("click", async () => {
+      await api(`/api/settings/api-keys/${btn.dataset.delKey}`, { method: "DELETE" });
+      renderSettings();
+    });
   });
 }
 

@@ -8,10 +8,10 @@ import httpx
 
 BASE_URL = "https://api.torn.com/v2"
 
-# Torn's own limit is 100 requests/minute; we cap ourselves below that so a single
-# sync (which can fire dozens of calls) doesn't run the account into Torn's own
-# rate limit. Shared across every TornClient instance, since a new client is
-# created per request but the underlying account-wide budget is the same one.
+# Torn's own limit is 100 requests/minute PER KEY; we cap each key we use below
+# that so a single sync (which can fire dozens of calls) doesn't run it into
+# Torn's own rate limit. Pooling multiple players' keys multiplies the app's
+# effective budget, since each key's 100/min allowance is independent.
 RATE_LIMIT_MAX_REQUESTS = 75
 RATE_LIMIT_WINDOW_SECONDS = 60.0
 
@@ -24,7 +24,8 @@ class TornAPIError(Exception):
 
 
 class TornRateLimitError(Exception):
-    """Raised when our own outgoing request budget (not Torn's) is exhausted."""
+    """Raised when every pooled key's own outgoing request budget (not Torn's
+    account-level state) is exhausted."""
 
     def __init__(self, retry_after: float):
         self.retry_after = retry_after
@@ -40,33 +41,64 @@ class _RateLimiter:
         self._timestamps: deque[float] = deque()
         self._lock = threading.Lock()
 
-    def acquire(self):
+    def try_acquire(self) -> tuple[bool, float]:
+        """Returns (True, 0) and reserves a slot if one's available right now,
+        else (False, seconds_until_one_frees_up) without reserving anything."""
         with self._lock:
             now = time.monotonic()
             while self._timestamps and now - self._timestamps[0] > self.window_seconds:
                 self._timestamps.popleft()
             if self._timestamps and len(self._timestamps) >= self.max_requests:
                 retry_after = self.window_seconds - (now - self._timestamps[0])
-                raise TornRateLimitError(max(retry_after, 1.0))
+                return False, max(retry_after, 1.0)
             self._timestamps.append(now)
+            return True, 0.0
 
 
-_rate_limiter = _RateLimiter(RATE_LIMIT_MAX_REQUESTS, RATE_LIMIT_WINDOW_SECONDS)
+# Per-key limiter state, keyed by the key string itself so it survives across
+# the many short-lived TornClient instances this app creates (one per request),
+# and a round-robin cursor so load spreads evenly across the pool over time -
+# both need to be process-wide, not per-instance, to mean anything.
+_key_limiters: dict[str, _RateLimiter] = {}
+_key_limiters_lock = threading.Lock()
+_pool_cursor = 0
+_pool_cursor_lock = threading.Lock()
+
+
+def _limiter_for_key(api_key: str) -> _RateLimiter:
+    with _key_limiters_lock:
+        if api_key not in _key_limiters:
+            _key_limiters[api_key] = _RateLimiter(RATE_LIMIT_MAX_REQUESTS, RATE_LIMIT_WINDOW_SECONDS)
+        return _key_limiters[api_key]
+
+
+def _pick_key(api_keys: list[str]) -> str:
+    """Round-robins through api_keys, returning the next one with budget to
+    spare. Raises TornRateLimitError with the shortest wait if all are tapped."""
+    global _pool_cursor
+    with _pool_cursor_lock:
+        start = _pool_cursor
+        waits = []
+        for i in range(len(api_keys)):
+            idx = (start + i) % len(api_keys)
+            ok, wait = _limiter_for_key(api_keys[idx]).try_acquire()
+            if ok:
+                _pool_cursor = (idx + 1) % len(api_keys)
+                return api_keys[idx]
+            waits.append(wait)
+        raise TornRateLimitError(min(waits))
 
 
 class TornClient:
-    def __init__(self, api_key: str):
-        if not api_key:
-            raise ValueError("Torn API key is required")
-        self._client = httpx.Client(
-            base_url=BASE_URL,
-            headers={"Authorization": f"ApiKey {api_key}"},
-            timeout=15,
-        )
+    def __init__(self, api_keys: list[str]):
+        if not api_keys:
+            raise ValueError("At least one Torn API key is required")
+        self._api_keys = api_keys
+        self._client = httpx.Client(base_url=BASE_URL, timeout=15)
 
     def get(self, path: str, params: dict | None = None) -> dict:
-        _rate_limiter.acquire()
-        response = self._client.get(path, params=params or {})
+        key = _pick_key(self._api_keys)
+        response = self._client.get(path, params=params or {}, headers={"Authorization": f"ApiKey {key}"})
         response.raise_for_status()
         data = response.json()
         if "error" in data:

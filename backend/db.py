@@ -1,5 +1,5 @@
-import json
 import sqlite3
+import time
 from pathlib import Path
 
 DB_PATH = Path(__file__).resolve().parent.parent / "torn_war_manager.db"
@@ -45,6 +45,13 @@ CREATE TABLE IF NOT EXISTS settings (
 CREATE TABLE IF NOT EXISTS rank_pay_rates (
     rank_name TEXT PRIMARY KEY,
     pay_rate_pct REAL NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS api_keys (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    api_key TEXT NOT NULL UNIQUE,
+    label TEXT,
+    added_at INTEGER
 );
 
 CREATE TABLE IF NOT EXISTS armory_targets (
@@ -166,12 +173,27 @@ def _post_migrate(conn, had_legacy_fine: bool):
         conn.execute("DROP TABLE war_members_legacy")
 
 
+def _migrate_single_api_key(conn):
+    """Moves the old single settings.api_key into the api_keys pool, if it's not
+    already there - so an existing setup keeps working without re-entering it."""
+    existing_key_count = conn.execute("SELECT COUNT(*) FROM api_keys").fetchone()[0]
+    if existing_key_count:
+        return
+    row = conn.execute("SELECT value FROM settings WHERE key = 'api_key'").fetchone()
+    if row and row["value"]:
+        conn.execute(
+            "INSERT OR IGNORE INTO api_keys (api_key, label, added_at) VALUES (?, ?, ?)",
+            (row["value"], "Primary", int(time.time())),
+        )
+
+
 def init_db():
     conn = get_connection()
     try:
         had_legacy_fine = _pre_migrate(conn)
         conn.executescript(SCHEMA)
         _post_migrate(conn, had_legacy_fine)
+        _migrate_single_api_key(conn)
 
         existing = conn.execute("SELECT COUNT(*) FROM rank_pay_rates").fetchone()[0]
         if existing == 0:
@@ -220,10 +242,46 @@ def set_setting(key: str, value: str):
         conn.close()
 
 
-def get_api_key() -> str | None:
-    return get_setting("api_key")
-
-
 def get_faction_id() -> int | None:
     value = get_setting("faction_id")
     return int(value) if value else None
+
+
+def list_api_keys() -> list[dict]:
+    conn = get_connection()
+    try:
+        rows = conn.execute("SELECT id, api_key, label, added_at FROM api_keys ORDER BY id").fetchall()
+        return [dict(r) for r in rows]
+    finally:
+        conn.close()
+
+
+def get_api_keys() -> list[str]:
+    """The raw key strings, for actually calling Torn - use list_api_keys() for display."""
+    conn = get_connection()
+    try:
+        rows = conn.execute("SELECT api_key FROM api_keys ORDER BY id").fetchall()
+        return [r["api_key"] for r in rows]
+    finally:
+        conn.close()
+
+
+def add_api_key(api_key: str, label: str | None) -> None:
+    conn = get_connection()
+    try:
+        conn.execute(
+            "INSERT OR IGNORE INTO api_keys (api_key, label, added_at) VALUES (?, ?, ?)",
+            (api_key, label, int(time.time())),
+        )
+        conn.commit()
+    finally:
+        conn.close()
+
+
+def remove_api_key(key_id: int) -> None:
+    conn = get_connection()
+    try:
+        conn.execute("DELETE FROM api_keys WHERE id = ?", (key_id,))
+        conn.commit()
+    finally:
+        conn.close()

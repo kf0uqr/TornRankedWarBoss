@@ -7,7 +7,6 @@ router = APIRouter(prefix="/api/settings", tags=["settings"])
 
 
 class SettingsIn(BaseModel):
-    api_key: str | None = None
     faction_id: int | None = None
 
 
@@ -16,21 +15,52 @@ class RankPayRateIn(BaseModel):
     pay_rate_pct: float
 
 
+class ApiKeyIn(BaseModel):
+    api_key: str
+    label: str | None = None
+
+
+def _mask(key: str) -> str:
+    return "•" * max(len(key) - 4, 0) + key[-4:] if len(key) > 4 else "•" * len(key)
+
+
+def _api_keys_out():
+    return [
+        {"id": r["id"], "label": r["label"], "masked_key": _mask(r["api_key"]), "added_at": r["added_at"]}
+        for r in db.list_api_keys()
+    ]
+
+
 @router.get("")
 def get_settings():
     return {
-        "has_api_key": bool(db.get_api_key()),
+        "api_key_count": len(db.get_api_keys()),
         "faction_id": db.get_faction_id(),
     }
 
 
 @router.post("")
 def update_settings(body: SettingsIn):
-    if body.api_key:
-        db.set_setting("api_key", body.api_key)
     if body.faction_id is not None:
         db.set_setting("faction_id", str(body.faction_id))
     return get_settings()
+
+
+@router.get("/api-keys")
+def list_api_keys():
+    return _api_keys_out()
+
+
+@router.post("/api-keys")
+def add_api_key(body: ApiKeyIn):
+    db.add_api_key(body.api_key.strip(), body.label.strip() if body.label else None)
+    return _api_keys_out()
+
+
+@router.delete("/api-keys/{key_id}")
+def delete_api_key(key_id: int):
+    db.remove_api_key(key_id)
+    return _api_keys_out()
 
 
 @router.get("/rank-pay-rates")
