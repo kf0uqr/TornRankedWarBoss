@@ -2,9 +2,9 @@
 flight it actually observes so the estimate can improve over time.
 
 Torn's API doesn't give an exact arrival time for other players, but
-/current_war refreshes every 5 minutes - so when a member's status flips
-from something else to "Traveling" between two consecutive refreshes, that
-tells us their takeoff time accurate to within that window. Estimated
+/current_war refreshes regularly - so when a member's status flips from
+something else to "Traveling" between two consecutive refreshes, that
+tells us their takeoff time accurate to within one refresh interval. Estimated
 arrival = takeoff + a travel duration for their destination: the standard
 duration, or 70% of it if they own a Private Island (private jet access) -
 backend/routes/wars.py looks that up via /user/{id}?selections=profile for

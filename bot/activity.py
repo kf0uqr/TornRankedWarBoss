@@ -1,6 +1,6 @@
 """Builds per-poll activity observations for the enemy roster.
 
-Every /current_war refresh (every 5 minutes), each enemy member's Torn
+Every /current_war refresh, each enemy member's Torn
 last_action.status ("Online"/"Idle"/"Offline") is sampled and logged against
 the current UTC hour (Torn's own clock) via /api/activity-observations. Over
 time this builds an empirical "percent of observed polls this member was

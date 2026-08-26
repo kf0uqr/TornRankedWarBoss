@@ -348,7 +348,7 @@ async function renderSettings() {
     <div class="card">
       <h2>Torn API Keys</h2>
       <p class="muted">
-        Torn caps each key at 100 requests/minute (this app self-limits to 75/key to stay safe). Adding more
+        Torn caps each key at 100 requests/minute (this app self-limits to 50/key to stay safe). Adding more
         keys - e.g. from other faction members - pools their budgets together for more total throughput.
         Each key needs at least <strong>Limited</strong> access, and should belong to a member of this faction
         (some endpoints are scoped to "my faction", not an explicit faction ID).

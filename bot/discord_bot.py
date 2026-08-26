@@ -31,7 +31,7 @@ from bot import travel  # noqa: E402
 from bot.render import render_tables  # noqa: E402
 
 APP_BASE_URL = "http://localhost:8787"
-WAR_STATUS_REFRESH_MINUTES = 5
+WAR_STATUS_REFRESH_MINUTES = 1
 
 _score_history = decay.ScoreHistory()
 _travel_tracker = travel.TravelTracker()
@@ -152,7 +152,7 @@ def image_file(png_bytes: bytes, filename: str) -> discord.File:
 def _decay_timestamp(seconds_remaining: float | None) -> str:
     """Discord's <t:...:R> markup ticks down live in every viewer's client -
     same trick as the hospital timers - so this needs no re-render to stay
-    accurate between the board's 5-minute refreshes."""
+    accurate between the board's refreshes."""
     if seconds_remaining is None:
         return "-"
     if seconds_remaining <= 0:
@@ -243,8 +243,8 @@ def build_enemy_status_message(data: dict, travel_overrides: dict | None = None)
         embed.add_field(name="In Hospital", value="\n".join(lines), inline=False)
 
     # Torn's API doesn't give an exact arrival time, but this board refreshes
-    # every 5 minutes - so a member's takeoff (first observed "Traveling") is
-    # known accurate to within that window, and estimated arrival = takeoff +
+    # regularly - so a member's takeoff (first observed "Traveling") is known
+    # accurate to within one refresh interval, and estimated arrival = takeoff +
     # a travel duration for their destination (standard, 70% of standard for a
     # Private Island owner, or an observed average once sync_travel_observations
     # has logged enough real flights - see bot/travel.py for the remaining,

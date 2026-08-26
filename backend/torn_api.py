@@ -12,7 +12,7 @@ BASE_URL = "https://api.torn.com/v2"
 # that so a single sync (which can fire dozens of calls) doesn't run it into
 # Torn's own rate limit. Pooling multiple players' keys multiplies the app's
 # effective budget, since each key's 100/min allowance is independent.
-RATE_LIMIT_MAX_REQUESTS = 75
+RATE_LIMIT_MAX_REQUESTS = 50
 RATE_LIMIT_WINDOW_SECONDS = 60.0
 
 

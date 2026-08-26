@@ -239,7 +239,7 @@ def own_war_sort_key(m):
 
 
 # Hours are UTC (Torn's own clock). Estimates come from
-# /api/activity-observations/estimates - percent of observed 5-minute polls
+# /api/activity-observations/estimates - percent of observed refresh polls
 # a member was Online at that hour, keyed by string member_id/hour since
 # that's how it comes back over JSON.
 ACTIVITY_HEATMAP_HEADERS = ["Name"] + [f"{h:02d}" for h in range(24)]
