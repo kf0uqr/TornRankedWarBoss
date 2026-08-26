@@ -1,4 +1,4 @@
-const state = { warId: null };
+const state = { warId: null, rateLimitUntil: null, rateLimitTimer: null };
 const HITS_PER_XANAX = 10;
 
 function toast(msg, isError = false) {
@@ -9,12 +9,45 @@ function toast(msg, isError = false) {
   setTimeout(() => el.remove(), 5000);
 }
 
+function startRateLimitCountdown(retryAfterSeconds) {
+  state.rateLimitUntil = Date.now() + retryAfterSeconds * 1000;
+  const banner = document.getElementById("rate-limit-banner");
+  const countdown = document.getElementById("rate-limit-countdown");
+  banner.classList.remove("hidden");
+
+  if (state.rateLimitTimer) clearInterval(state.rateLimitTimer);
+  const tick = () => {
+    const remaining = Math.max(0, Math.ceil((state.rateLimitUntil - Date.now()) / 1000));
+    countdown.textContent = remaining;
+    if (remaining <= 0) {
+      banner.classList.add("hidden");
+      state.rateLimitUntil = null;
+      clearInterval(state.rateLimitTimer);
+      state.rateLimitTimer = null;
+    }
+  };
+  tick();
+  state.rateLimitTimer = setInterval(tick, 1000);
+}
+
 async function api(path, opts = {}) {
+  if (state.rateLimitUntil && Date.now() < state.rateLimitUntil) {
+    const remaining = Math.ceil((state.rateLimitUntil - Date.now()) / 1000);
+    toast(`Still waiting on the Torn API rate limit - ${remaining}s left`, true);
+    throw new Error("rate-limited");
+  }
+
   const res = await fetch(path, {
     headers: { "Content-Type": "application/json" },
     ...opts,
   });
   const data = await res.json().catch(() => ({}));
+
+  if (res.status === 429) {
+    startRateLimitCountdown(data.retry_after || 60);
+    toast(data.detail || "Torn API rate limit reached", true);
+    throw new Error(data.detail || "Rate limited");
+  }
   if (!res.ok) {
     const msg = data.detail || res.statusText;
     toast(msg, true);

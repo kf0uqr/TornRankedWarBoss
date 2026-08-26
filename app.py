@@ -1,11 +1,13 @@
 from pathlib import Path
 
 import uvicorn
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
+from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
 
 from backend import db
 from backend.routes import armory, settings, stats, wars
+from backend.torn_api import TornRateLimitError
 
 FRONTEND_DIR = Path(__file__).resolve().parent / "frontend"
 
@@ -16,6 +18,20 @@ app.include_router(settings.router)
 app.include_router(wars.router)
 app.include_router(armory.router)
 app.include_router(stats.router)
+
+
+@app.exception_handler(TornRateLimitError)
+async def rate_limit_handler(request: Request, exc: TornRateLimitError):
+    return JSONResponse(
+        status_code=429,
+        content={
+            "detail": "Reached this app's Torn API request budget - waiting for it to free up.",
+            "retry_after": exc.retry_after,
+        },
+        headers={"Retry-After": str(int(exc.retry_after) + 1)},
+    )
+
+
 app.mount("/", StaticFiles(directory=FRONTEND_DIR, html=True), name="frontend")
 
 
