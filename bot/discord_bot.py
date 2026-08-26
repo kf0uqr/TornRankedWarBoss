@@ -24,6 +24,7 @@ from discord.ext import tasks
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 from backend import db  # noqa: E402
+from bot import activity  # noqa: E402
 from bot import decay  # noqa: E402
 from bot import format as fmt  # noqa: E402
 from bot import travel  # noqa: E402
@@ -107,6 +108,22 @@ async def sync_travel_observations(war_id: int, members: list[dict]) -> dict:
         return await api_get("/api/travel-observations/estimates")
     except Exception as e:
         print(f"Failed to fetch travel estimates: {e}")
+        return {}
+
+
+async def sync_activity_observations(members: list[dict]) -> dict:
+    """Logs this poll's online/idle/offline snapshot for every enemy member
+    and pulls back the current per-hour activity-percent estimates for
+    build_activity_heatmap_message."""
+    observations = activity.build_observations(members)
+    try:
+        await api_post("/api/activity-observations", {"observations": observations})
+    except Exception as e:
+        print(f"Failed to log activity observations: {e}")
+    try:
+        return await api_get("/api/activity-observations/estimates")
+    except Exception as e:
+        print(f"Failed to fetch activity estimates: {e}")
         return {}
 
 
@@ -260,6 +277,25 @@ def build_own_status_message(data: dict) -> tuple[discord.Embed, discord.File]:
     return embed, image_file(png, "own_roster.png")
 
 
+def build_activity_heatmap_message(data: dict, activity_estimates: dict) -> tuple[discord.Embed, discord.File]:
+    war = data["war"]
+    members = sorted(data["members"], key=lambda m: m["name"].lower())
+
+    embed = discord.Embed(title=f"Activity Heatmap - vs {war['opponent_name']}", color=0x5DA9FF)
+    embed.description = _auto_update_description()
+    embed.set_footer(
+        text=f"Percent of observed 5-min polls each member was Online, by UTC hour - needs "
+        f"{activity.MIN_OBSERVED_SAMPLES}+ polls at that hour to show, so this fills in the longer the bot runs."
+    )
+
+    rows = [fmt.activity_heatmap_row(m["id"], m["name"], activity_estimates) for m in members]
+    png = render_tables(
+        f"Activity Heatmap - {war['opponent_name']}",
+        [{"heading": None, "headers": fmt.ACTIVITY_HEATMAP_HEADERS, "rows": rows}],
+    )
+    return embed, image_file(png, "activity_heatmap.png")
+
+
 @bot.event
 async def on_ready():
     guild_id = db.get_setting("discord_guild_id")
@@ -324,13 +360,16 @@ async def current_war_command(interaction: discord.Interaction):
         return
 
     travel_overrides = await sync_travel_observations(data["war"]["id"], data["members"])
+    activity_estimates = await sync_activity_observations(data["members"])
 
-    # Two separate posts, not one combined image - each renders as large as
-    # Discord will show it, instead of both being squeezed into a shared image.
+    # Separate posts, not one combined image - each renders as large as
+    # Discord will show it, instead of being squeezed into a shared image.
     enemy_embed, enemy_file = build_enemy_status_message(data, travel_overrides)
     enemy_message = await interaction.channel.send(embed=enemy_embed, file=enemy_file)
     own_embed, own_file = build_own_status_message(data)
     own_message = await interaction.channel.send(embed=own_embed, file=own_file)
+    activity_embed, activity_file = build_activity_heatmap_message(data, activity_estimates)
+    activity_message = await interaction.channel.send(embed=activity_embed, file=activity_file)
 
     await api_post(
         "/api/settings/discord-war-status",
@@ -339,10 +378,11 @@ async def current_war_command(interaction: discord.Interaction):
             "channel_id": str(enemy_message.channel.id),
             "enemy_message_id": str(enemy_message.id),
             "own_message_id": str(own_message.id),
+            "activity_message_id": str(activity_message.id),
         },
     )
     await interaction.followup.send(
-        f"Posted - I'll refresh both every {WAR_STATUS_REFRESH_MINUTES} minutes while this war is active.",
+        f"Posted - I'll refresh all three every {WAR_STATUS_REFRESH_MINUTES} minutes while this war is active.",
         ephemeral=True,
     )
 
@@ -460,7 +500,7 @@ async def armory_command(interaction: discord.Interaction):
 @tasks.loop(minutes=WAR_STATUS_REFRESH_MINUTES)
 async def refresh_war_status():
     ref = await api_get("/api/settings/discord-war-status")
-    if not ref.get("enemy_message_id") or not ref.get("own_message_id"):
+    if not ref.get("enemy_message_id") or not ref.get("own_message_id") or not ref.get("activity_message_id"):
         return
 
     channel_id = int(ref["channel_id"])
@@ -468,9 +508,10 @@ async def refresh_war_status():
         channel = bot.get_channel(channel_id) or await bot.fetch_channel(channel_id)
         enemy_message = await channel.fetch_message(int(ref["enemy_message_id"]))
         own_message = await channel.fetch_message(int(ref["own_message_id"]))
+        activity_message = await channel.fetch_message(int(ref["activity_message_id"]))
     except (discord.NotFound, discord.Forbidden):
         # A message or the channel is gone - stop chasing it until /current_war
-        # is run again, rather than editing just whichever half still exists.
+        # is run again, rather than editing just whichever ones still exist.
         await api_delete("/api/settings/discord-war-status")
         return
 
@@ -485,14 +526,19 @@ async def refresh_war_status():
         ended_note = "*This war has ended - this board is no longer being updated.*"
         await enemy_message.edit(content=ended_note)
         await own_message.edit(content=ended_note)
+        await activity_message.edit(content=ended_note)
         await api_delete("/api/settings/discord-war-status")
         return
 
     travel_overrides = await sync_travel_observations(war["id"], data["members"])
+    activity_estimates = await sync_activity_observations(data["members"])
+
     enemy_embed, enemy_file = build_enemy_status_message(data, travel_overrides)
     await enemy_message.edit(embed=enemy_embed, attachments=[enemy_file])
     own_embed, own_file = build_own_status_message(data)
     await own_message.edit(embed=own_embed, attachments=[own_file])
+    activity_embed, activity_file = build_activity_heatmap_message(data, activity_estimates)
+    await activity_message.edit(embed=activity_embed, attachments=[activity_file])
 
 
 @refresh_war_status.before_loop

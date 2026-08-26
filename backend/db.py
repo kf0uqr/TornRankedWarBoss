@@ -126,6 +126,17 @@ CREATE TABLE IF NOT EXISTS travel_observations (
     duration_seconds INTEGER NOT NULL,
     recorded_at INTEGER NOT NULL
 );
+
+CREATE TABLE IF NOT EXISTS activity_observations (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    member_id INTEGER NOT NULL,
+    member_name TEXT,
+    hour_of_day INTEGER NOT NULL,
+    is_active INTEGER NOT NULL,
+    observed_at INTEGER NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_activity_member_hour ON activity_observations(member_id, hour_of_day);
 """
 
 
@@ -430,4 +441,54 @@ def get_travel_estimates() -> dict[str, dict]:
         entry = estimates.setdefault(r["destination"], {})
         key = "private_island" if r["has_private_island"] else "standard"
         entry[key] = {"avg_minutes": r["avg_minutes"], "sample_count": r["sample_count"]}
+    return estimates
+
+
+def add_activity_observations(observations: list[dict]) -> None:
+    if not observations:
+        return
+    conn = get_connection()
+    try:
+        conn.executemany(
+            """
+            INSERT INTO activity_observations (member_id, member_name, hour_of_day, is_active, observed_at)
+            VALUES (?, ?, ?, ?, ?)
+            """,
+            [
+                (o["member_id"], o.get("member_name"), o["hour_of_day"], 1 if o["is_active"] else 0, o["observed_at"])
+                for o in observations
+            ],
+        )
+        conn.commit()
+    finally:
+        conn.close()
+
+
+def get_activity_estimates() -> dict[str, dict[str, dict]]:
+    """Percent of observed polls where each member was active, bucketed by
+    hour of day (0-23, UTC - same as Torn's own clock). Keyed by string
+    member_id/hour since this goes straight out as JSON."""
+    conn = get_connection()
+    try:
+        rows = conn.execute(
+            """
+            SELECT member_id, hour_of_day,
+                   SUM(is_active) AS active_count,
+                   COUNT(*) AS total_count
+            FROM activity_observations
+            GROUP BY member_id, hour_of_day
+            """
+        ).fetchall()
+    finally:
+        conn.close()
+
+    estimates: dict[str, dict[str, dict]] = {}
+    for r in rows:
+        by_hour = estimates.setdefault(str(r["member_id"]), {})
+        pct = (r["active_count"] / r["total_count"] * 100) if r["total_count"] else None
+        by_hour[str(r["hour_of_day"])] = {
+            "active_count": r["active_count"],
+            "total_count": r["total_count"],
+            "pct": pct,
+        }
     return estimates

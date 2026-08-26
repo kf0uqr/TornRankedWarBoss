@@ -38,6 +38,7 @@ class DiscordWarStatusIn(BaseModel):
     channel_id: str
     enemy_message_id: str
     own_message_id: str
+    activity_message_id: str
 
 
 class FFScouterApiKeyIn(BaseModel):
@@ -141,6 +142,7 @@ def get_discord_war_status():
         "channel_id": db.get_setting("discord_war_status_channel_id"),
         "enemy_message_id": db.get_setting("discord_war_status_enemy_message_id"),
         "own_message_id": db.get_setting("discord_war_status_own_message_id"),
+        "activity_message_id": db.get_setting("discord_war_status_activity_message_id"),
     }
 
 
@@ -150,6 +152,7 @@ def set_discord_war_status(body: DiscordWarStatusIn):
     db.set_setting("discord_war_status_channel_id", body.channel_id)
     db.set_setting("discord_war_status_enemy_message_id", body.enemy_message_id)
     db.set_setting("discord_war_status_own_message_id", body.own_message_id)
+    db.set_setting("discord_war_status_activity_message_id", body.activity_message_id)
     return get_discord_war_status()
 
 
@@ -159,6 +162,7 @@ def clear_discord_war_status():
     db.set_setting("discord_war_status_channel_id", "")
     db.set_setting("discord_war_status_enemy_message_id", "")
     db.set_setting("discord_war_status_own_message_id", "")
+    db.set_setting("discord_war_status_activity_message_id", "")
     return get_discord_war_status()
 
 

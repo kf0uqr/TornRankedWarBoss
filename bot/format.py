@@ -5,6 +5,7 @@ same caveat as bot/render.py.
 
 import re
 
+from bot.activity import MIN_OBSERVED_SAMPLES as MIN_ACTIVITY_SAMPLES
 from bot.render import COLORS
 
 PAYSHEET_HEADERS = [
@@ -235,3 +236,29 @@ def own_war_row(m) -> list:
 def own_war_sort_key(m):
     """Highest respect gained this war first, hits as the tiebreaker."""
     return (-(m.get("war_respect") or 0), -(m.get("war_hits") or 0))
+
+
+# Hours are UTC (Torn's own clock). Estimates come from
+# /api/activity-observations/estimates - percent of observed 5-minute polls
+# a member was Online at that hour, keyed by string member_id/hour since
+# that's how it comes back over JSON.
+ACTIVITY_HEATMAP_HEADERS = ["Name"] + [f"{h:02d}" for h in range(24)]
+
+
+def activity_heatmap_row(member_id: int, name: str, estimates: dict) -> list:
+    by_hour = estimates.get(str(member_id), {})
+    row = [name]
+    for hour in range(24):
+        entry = by_hour.get(str(hour))
+        if not entry or entry["total_count"] < MIN_ACTIVITY_SAMPLES:
+            row.append({"text": "-", "color": COLORS["text_dim"]})
+            continue
+        pct = entry["pct"]
+        if pct >= 50:
+            color = COLORS["good"]
+        elif pct >= 20:
+            color = COLORS["warn"]
+        else:
+            color = COLORS["text_dim"]
+        row.append({"text": f"{pct:.0f}%", "color": color})
+    return row
