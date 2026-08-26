@@ -83,7 +83,9 @@ def sync_war(client: TornClient, conn, faction_id: int, ranked_war_id: int) -> i
     # and would otherwise pull in members who joined after the war was already over.
     member_ids = set(inside_hits) | set(outside_hits) | set(assist_hits)
 
-    known_ranks = {r["rank_name"] for r in conn.execute("SELECT rank_name FROM rank_pay_rates")}
+    # Keyed lowercase since Torn's own position strings don't reliably match rank_pay_rates'
+    # casing (e.g. Torn returns "Co-leader", not "Co-Leader").
+    known_ranks_by_lower = {r["rank_name"].lower(): r["rank_name"] for r in conn.execute("SELECT rank_name FROM rank_pay_rates")}
 
     # Prune anyone left over from a previous sync who's no longer on the war roster
     # (e.g. joined after the war and got swept in by an earlier version of this logic).
@@ -121,7 +123,7 @@ def sync_war(client: TornClient, conn, faction_id: int, ranked_war_id: int) -> i
             pay_rank = existing["pay_rank"]
         else:
             fine_waived = 0
-            pay_rank = position if position in known_ranks else None
+            pay_rank = known_ranks_by_lower.get(position.lower()) if position else None
 
         conn.execute(
             """

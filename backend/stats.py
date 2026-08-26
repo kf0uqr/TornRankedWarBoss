@@ -9,6 +9,13 @@ verified against the original sheet's numbers.
 from backend.torn_api import TornClient
 
 LEADERSHIP_RANKS = {"Leader", "Co-Leader", "Chief Evasion Officer"}
+_LEADERSHIP_RANKS_LOWER = {r.lower() for r in LEADERSHIP_RANKS}
+
+
+def _is_leadership(rank_name: str | None) -> bool:
+    """Case-insensitive check - Torn's own position string for Co-Leader is actually
+    'Co-leader' (lowercase l), which would silently fail an exact-match comparison."""
+    return bool(rank_name) and rank_name.strip().lower() in _LEADERSHIP_RANKS_LOWER
 
 
 def compute_respect_lost(client: TornClient, from_ts: int, to_ts: int) -> dict[int, float]:
@@ -56,8 +63,8 @@ def rank_members(members: list[dict]) -> list[dict]:
 def compute_player_stats(members: list[dict]) -> dict:
     """Splits members into leadership (Leader/Co-Leader/Chief Evasion Officer) and
     everyone else, ranking each group independently."""
-    leadership = [m for m in members if m["pay_rank"] in LEADERSHIP_RANKS]
-    others = [m for m in members if m["pay_rank"] not in LEADERSHIP_RANKS]
+    leadership = [m for m in members if _is_leadership(m["pay_rank"])]
+    others = [m for m in members if not _is_leadership(m["pay_rank"])]
     return {
         "leadership": rank_members(leadership),
         "others": rank_members(others),
@@ -67,7 +74,12 @@ def compute_player_stats(members: list[dict]) -> dict:
 def compute_career_stats(current_members: list[dict], war_member_rows: list[dict]) -> list[dict]:
     """Per-war averages for every currently-in-faction member, across all synced wars
     they appear in. current_members: dicts with member_id, name, position.
-    war_member_rows: every war_members row across every synced war."""
+    war_member_rows: every war_members row across every synced war.
+
+    Leadership (Leader/Co-Leader/Chief Evasion Officer) is excluded entirely - this
+    board is for ranking regular players against each other."""
+    current_members = [m for m in current_members if not _is_leadership(m["position"])]
+
     rows_by_member: dict[int, list[dict]] = {}
     for row in war_member_rows:
         rows_by_member.setdefault(row["member_id"], []).append(row)
