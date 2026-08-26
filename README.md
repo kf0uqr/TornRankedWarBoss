@@ -40,6 +40,8 @@ or directly:
 
 Then open **http://localhost:8787**.
 
+`./start.sh` and `./start-bot.sh` both self-update before launching: they check `origin` for new commits and pull them (fast-forward only - never merges or discards anything), reinstalling dependencies if `requirements.txt` changed, then stop any already-running instance and start fresh so the update actually takes effect. If you have uncommitted local changes, or the branch has diverged from `origin` in a way that isn't a clean fast-forward, it skips the update entirely and just starts with the code as-is - it never touches your working tree beyond a plain `git pull`. Run directly with `.venv/bin/python app.py` (or `bot/discord_bot.py`) to skip this and always run exactly what's on disk.
+
 On first run, go to the **Settings** tab and enter your Torn API key and faction ID. These are stored locally in `torn_war_manager.db` (a SQLite file created next to `app.py`, ignored by git) and are never sent anywhere but `api.torn.com`.
 
 You can add more API keys in Settings to pool their rate limits together - each key needs at least **Limited** access, and should belong to a member of *this* faction (some endpoints Torn scopes to "my faction" rather than an explicit faction ID, so a key from a different faction would return the wrong data).
