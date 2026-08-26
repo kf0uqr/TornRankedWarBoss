@@ -97,13 +97,28 @@ class TornClient:
         self._client = httpx.Client(base_url=BASE_URL, timeout=15)
 
     def get(self, path: str, params: dict | None = None) -> dict:
-        key = _pick_key(self._api_keys)
-        response = self._client.get(path, params=params or {}, headers={"Authorization": f"ApiKey {key}"})
-        response.raise_for_status()
-        data = response.json()
-        if "error" in data:
-            raise TornAPIError(data["error"]["code"], data["error"]["error"])
-        return data
+        last_error = None
+        # Retries with the next pooled key on ANY Torn API error, bounded to
+        # the pool size. Torn reuses error codes inconsistently across
+        # endpoints - e.g. a key missing a selection can come back as
+        # "Incorrect ID-entity relation" (code 7), which reads like a bad
+        # request rather than a key problem - so a curated "these codes are
+        # key-specific" list turned out to be unreliable in practice. Worst
+        # case for a genuinely request-level error (bad ID, wrong fields):
+        # every key reproduces the same error and this still raises it
+        # correctly, just after a few wasted calls instead of one.
+        for _ in range(len(self._api_keys)):
+            key = _pick_key(self._api_keys)
+            response = self._client.get(path, params=params or {}, headers={"Authorization": f"ApiKey {key}"})
+            response.raise_for_status()
+            data = response.json()
+            if "error" not in data:
+                return data
+
+            error = TornAPIError(data["error"]["code"], data["error"]["error"])
+            print(f"Torn API error for {path} ({error}) - retrying with another pooled key.")
+            last_error = error
+        raise last_error
 
     def close(self):
         self._client.close()
