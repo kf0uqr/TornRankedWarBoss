@@ -275,6 +275,7 @@ function switchTab(name) {
   document.querySelectorAll(".tab").forEach((s) => s.classList.toggle("hidden", s.id !== `tab-${name}`));
   if (name === "wars") renderWars();
   if (name === "armory") renderArmory();
+  if (name === "stats") renderCareerStats();
   if (name === "settings") renderSettings();
 }
 
@@ -803,6 +804,77 @@ async function renderArmory() {
     });
     root.querySelector("#armory-total").textContent = money(total);
   }
+}
+
+// ---------- Career Stats ----------
+
+const CAREER_STAT_TABS = [
+  { key: "avg_hits", rankKey: "avg_hits_rank", label: "Avg Hits Made" },
+  { key: "avg_respect_gained", rankKey: "avg_respect_gained_rank", label: "Avg Respect Gained" },
+  { key: "avg_respect_lost", rankKey: "avg_respect_lost_rank", label: "Avg Respect Lost" },
+];
+
+async function renderCareerStats() {
+  const root = document.getElementById("tab-stats");
+  root.innerHTML = `<div class="card"><p class="muted">Loading stats...</p></div>`;
+  const members = await api("/api/stats/career").catch(() => null);
+  if (!members) return;
+
+  if (!state.statsMetric) state.statsMetric = CAREER_STAT_TABS[0].key;
+
+  const renderTable = () => {
+    const active = CAREER_STAT_TABS.find((t) => t.key === state.statsMetric);
+    const sorted = [...members].sort((a, b) => a[active.rankKey] - b[active.rankKey]);
+    const rows = sorted
+      .map(
+        (m) => `
+      <tr>
+        <td>${m.name}</td>
+        <td class="muted">${m.position || "-"}</td>
+        <td>${num(m.wars_played)}</td>
+        <td>${num(m.avg_hits, 1)} <span class="muted">(#${m.avg_hits_rank})</span></td>
+        <td>${num(m.avg_respect_gained, 2)} <span class="muted">(#${m.avg_respect_gained_rank})</span></td>
+        <td>${num(m.avg_respect_lost, 2)} <span class="muted">(#${m.avg_respect_lost_rank})</span></td>
+      </tr>`
+      )
+      .join("");
+    root.querySelector("#career-stats-table").innerHTML = `
+      <table>
+        <thead>
+          <tr>
+            <th>Name</th><th>Position</th><th>Wars Played</th>
+            <th>Avg Hits Made</th><th>Avg Respect Gained</th><th>Avg Respect Lost</th>
+          </tr>
+        </thead>
+        <tbody>${rows}</tbody>
+      </table>
+    `;
+  };
+
+  root.innerHTML = `
+    <div class="card">
+      <div class="row between">
+        <h2>Player Stats</h2>
+      </div>
+      <p class="muted">Per-war averages across every synced war, for everyone currently in the faction.</p>
+      <div class="row" id="career-stat-tabs" style="margin-bottom:14px">
+        ${CAREER_STAT_TABS.map(
+          (t) => `<button class="tab-btn ${t.key === state.statsMetric ? "active" : ""}" data-metric="${t.key}">${t.label}</button>`
+        ).join("")}
+      </div>
+      <div id="career-stats-table"></div>
+    </div>
+  `;
+
+  root.querySelectorAll("#career-stat-tabs .tab-btn").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      state.statsMetric = btn.dataset.metric;
+      root.querySelectorAll("#career-stat-tabs .tab-btn").forEach((b) => b.classList.toggle("active", b === btn));
+      renderTable();
+    });
+  });
+
+  renderTable();
 }
 
 // ---------- Init ----------

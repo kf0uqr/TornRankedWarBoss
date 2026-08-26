@@ -5,7 +5,7 @@ from fastapi import FastAPI
 from fastapi.staticfiles import StaticFiles
 
 from backend import db
-from backend.routes import armory, settings, wars
+from backend.routes import armory, settings, stats, wars
 
 FRONTEND_DIR = Path(__file__).resolve().parent / "frontend"
 
@@ -15,6 +15,7 @@ app = FastAPI(title="Torn Ranked War Manager")
 app.include_router(settings.router)
 app.include_router(wars.router)
 app.include_router(armory.router)
+app.include_router(stats.router)
 app.mount("/", StaticFiles(directory=FRONTEND_DIR, html=True), name="frontend")
 
 

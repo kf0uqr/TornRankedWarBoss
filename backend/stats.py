@@ -62,3 +62,49 @@ def compute_player_stats(members: list[dict]) -> dict:
         "leadership": rank_members(leadership),
         "others": rank_members(others),
     }
+
+
+def compute_career_stats(current_members: list[dict], war_member_rows: list[dict]) -> list[dict]:
+    """Per-war averages for every currently-in-faction member, across all synced wars
+    they appear in. current_members: dicts with member_id, name, position.
+    war_member_rows: every war_members row across every synced war."""
+    rows_by_member: dict[int, list[dict]] = {}
+    for row in war_member_rows:
+        rows_by_member.setdefault(row["member_id"], []).append(row)
+
+    results = []
+    for m in current_members:
+        rows = rows_by_member.get(m["member_id"], [])
+        wars_played = len(rows)
+        if wars_played:
+            avg_hits = sum(r["inside_hits"] + r["outside_hits"] + r["assist_hits"] for r in rows) / wars_played
+            avg_respect_gained = sum(r["respect"] for r in rows) / wars_played
+            avg_respect_lost = sum(r["respect_lost"] for r in rows) / wars_played
+        else:
+            avg_hits = avg_respect_gained = avg_respect_lost = 0.0
+        results.append(
+            {
+                "member_id": m["member_id"],
+                "name": m["name"],
+                "position": m["position"],
+                "wars_played": wars_played,
+                "avg_hits": avg_hits,
+                "avg_respect_gained": avg_respect_gained,
+                "avg_respect_lost": avg_respect_lost,
+            }
+        )
+
+    avg_hits_rank = _dense_rank([(r["member_id"], r["avg_hits"]) for r in results], descending=True)
+    avg_respect_gained_rank = _dense_rank(
+        [(r["member_id"], r["avg_respect_gained"]) for r in results], descending=True
+    )
+    avg_respect_lost_rank = _dense_rank(
+        [(r["member_id"], r["avg_respect_lost"]) for r in results], descending=False
+    )
+    for r in results:
+        r["avg_hits_rank"] = avg_hits_rank[r["member_id"]]
+        r["avg_respect_gained_rank"] = avg_respect_gained_rank[r["member_id"]]
+        r["avg_respect_lost_rank"] = avg_respect_lost_rank[r["member_id"]]
+
+    results.sort(key=lambda r: r["avg_hits_rank"])
+    return results
