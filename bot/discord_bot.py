@@ -181,10 +181,16 @@ def build_war_status_message(data: dict) -> tuple[discord.Embed, discord.File]:
             lines.append(f"+{len(hospitalized) - 20} more")
         embed.add_field(name="In Hospital", value="\n".join(lines), inline=False)
 
-    embed.set_footer(
-        text=f"Auto-updates every {WAR_STATUS_REFRESH_MINUTES} min while this war is active. "
-        "Decay/payout numbers are community-observed estimates, not official Torn data."
-    )
+    # Embed footers don't render Discord's timestamp markup (plain text only),
+    # so the live "auto-updates in" countdown has to live in the description
+    # instead - next_iteration is None only in the brief window before the
+    # refresh loop's first tick, hence the static fallback.
+    next_run = refresh_war_status.next_iteration
+    if next_run:
+        embed.description = f"Auto-updates <t:{int(next_run.timestamp())}:R>"
+    else:
+        embed.description = f"Auto-updates every {WAR_STATUS_REFRESH_MINUTES} min while this war is active"
+    embed.set_footer(text="Decay/payout numbers are community-observed estimates, not official Torn data.")
 
     rows = [fmt.war_status_row(m) for m in members]
     png = render_tables(f"Enemy Roster - {war['opponent_name']}", [{"heading": None, "headers": fmt.WAR_STATUS_HEADERS, "rows": rows}])
