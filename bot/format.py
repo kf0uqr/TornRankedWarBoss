@@ -3,8 +3,6 @@ frontend/app.js's paysheetRowCells/statsRowCells etc. Kept in sync by hand,
 same caveat as bot/render.py.
 """
 
-import time
-
 from bot.render import COLORS
 
 PAYSHEET_HEADERS = [
@@ -25,11 +23,11 @@ CAREER_HEADERS = [
 
 ARMORY_HEADERS = ["Item", "Target Qty", "On Hand", "Needed", "Unit Price", "Cost"]
 
-# Torn's own /faction/{id}/rankedwarreport doesn't expose battle stats for an
-# enemy faction (that needs a spy report), so a real Fair Fight score isn't
-# obtainable here - level/status/last-action are the closest useful proxy the
-# public API gives us for "is this person worth hitting right now".
-WAR_STATUS_HEADERS = ["Name", "Level", "Status", "Last Action", "Position", "On Wall", "Revivable"]
+# Torn's own API doesn't expose battle stats for an enemy faction (that needs
+# a spy report), so Fair Fight / estimated stats here come from ffscouter.com
+# (see backend/ffscouter.py) when a key is configured in Settings - otherwise
+# those two columns just show "-".
+WAR_STATUS_HEADERS = ["Name", "Level", "Fair Fight", "Est. Stats", "Status", "Last Action", "Position", "On Wall", "Revivable"]
 
 STATUS_COLOR_MAP = {
     "green": COLORS["good"],
@@ -37,13 +35,6 @@ STATUS_COLOR_MAP = {
     "yellow": COLORS["warn"],
     "blue": COLORS["accent"],
 }
-
-
-def _format_duration(seconds: int) -> str:
-    seconds = max(seconds, 0)
-    hours, rem = divmod(seconds, 3600)
-    minutes, _ = divmod(rem, 60)
-    return f"{hours}h{minutes}m" if hours else f"{minutes}m"
 
 
 def money(n) -> str:
@@ -135,17 +126,32 @@ def armory_totals_row(lines: list) -> list:
     ]
 
 
+def fair_fight_cell(m):
+    ff = m.get("fair_fight")
+    if ff is None:
+        return "-"
+    # FFScouter's own convention: >3 is a poor fight for you, <1 barely counts -
+    # green/yellow/red bands make the worthwhile targets jump out in the table.
+    if ff <= 1.5:
+        color = COLORS["text_dim"]
+    elif ff <= 3.0:
+        color = COLORS["good"]
+    else:
+        color = COLORS["bad"]
+    return {"text": f"{ff:.2f}", "color": color}
+
+
 def war_status_row(m) -> list:
     status = m["status"]
+    # Torn's own description already reads e.g. "In hospital for 14 mins" -
+    # no need to compute our own duration on top of it.
     status_text = status["description"] or status["state"]
-    if status.get("until"):
-        remaining = status["until"] - int(time.time())
-        if remaining > 0:
-            status_text += f" ({_format_duration(remaining)})"
     la = m["last_action"]
     return [
         m["name"],
         str(m["level"]),
+        fair_fight_cell(m),
+        m.get("bs_estimate_human") or "-",
         {"text": status_text, "color": STATUS_COLOR_MAP.get(status.get("color"), COLORS["text"])},
         la["relative"],
         m.get("position") or "-",
@@ -155,7 +161,9 @@ def war_status_row(m) -> list:
 
 
 def war_status_sort_key(m):
-    """Okay (attackable) members first, then everyone else grouped by status,
-    highest level first within each group - the people worth looking at first."""
+    """Okay (attackable) members first; within that group, best Fair Fight
+    first when we have scouting data, else fall back to highest level -
+    surfaces the people actually worth looking at first."""
     is_okay = m["status"].get("state") == "Okay"
-    return (0 if is_okay else 1, -(m["level"] or 0))
+    ff = m.get("fair_fight")
+    return (0 if is_okay else 1, -(ff if ff is not None else 0), -(m["level"] or 0))

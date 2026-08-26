@@ -1,7 +1,8 @@
+import httpx
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 
-from backend import armory, db, payout, stats, sync
+from backend import armory, db, ffscouter, payout, stats, sync
 from backend.deps import require_client, require_faction_id, torn_error_to_http
 from backend.torn_api import TornAPIError
 
@@ -82,6 +83,19 @@ def current_war():
     finally:
         client.close()
 
+    ffscouter_key = db.get_ffscouter_api_key()
+    ffscouter_error = None
+    if ffscouter_key:
+        try:
+            stats_by_id = ffscouter.get_stats(ffscouter_key, [m["id"] for m in members])
+            for m in members:
+                entry = stats_by_id.get(m["id"])
+                if entry:
+                    m["fair_fight"] = entry.get("fair_fight")
+                    m["bs_estimate_human"] = entry.get("bs_estimate_human")
+        except (httpx.HTTPError, ffscouter.FFScouterError) as exc:
+            ffscouter_error = str(exc)
+
     return {
         "war": {
             "id": current["id"],
@@ -93,6 +107,7 @@ def current_war():
             "opponent_score": opponent["score"],
         },
         "members": members,
+        "ffscouter_error": ffscouter_error,
     }
 
 

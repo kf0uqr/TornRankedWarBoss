@@ -39,6 +39,10 @@ class DiscordWarStatusIn(BaseModel):
     message_id: str
 
 
+class FFScouterApiKeyIn(BaseModel):
+    api_key: str
+
+
 def _mask(value: str) -> str:
     return "•" * max(len(value) - 4, 0) + value[-4:] if len(value) > 4 else "•" * len(value)
 
@@ -57,12 +61,15 @@ def _discord_allowed_users_out():
 @router.get("")
 def get_settings():
     token = db.get_discord_bot_token()
+    ffscouter_key = db.get_ffscouter_api_key()
     return {
         "api_key_count": len(db.get_api_keys()),
         "faction_id": db.get_faction_id(),
         "has_discord_bot_token": bool(token),
         "discord_bot_token_masked": _mask(token) if token else None,
         "discord_guild_id": db.get_setting("discord_guild_id"),
+        "has_ffscouter_api_key": bool(ffscouter_key),
+        "ffscouter_api_key_masked": _mask(ffscouter_key) if ffscouter_key else None,
     }
 
 
@@ -117,6 +124,12 @@ def add_discord_allowed_user(body: DiscordAllowedUserIn):
 def delete_discord_allowed_user(entry_id: int):
     db.remove_discord_allowed_user(entry_id)
     return _discord_allowed_users_out()
+
+
+@router.post("/ffscouter-api-key")
+def set_ffscouter_api_key(body: FFScouterApiKeyIn):
+    db.set_ffscouter_api_key(body.api_key.strip())
+    return get_settings()
 
 
 @router.get("/discord-war-status")

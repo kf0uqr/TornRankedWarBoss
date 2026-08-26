@@ -302,6 +302,14 @@ def set_discord_bot_token(token: str) -> None:
     set_setting("discord_bot_token", token)
 
 
+def get_ffscouter_api_key() -> str | None:
+    return get_setting("ffscouter_api_key")
+
+
+def set_ffscouter_api_key(key: str) -> None:
+    set_setting("ffscouter_api_key", key)
+
+
 def list_discord_allowed_users() -> list[dict]:
     conn = get_connection()
     try:
