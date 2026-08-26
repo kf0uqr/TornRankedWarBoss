@@ -83,6 +83,14 @@ CREATE TABLE IF NOT EXISTS war_members (
     xanax_used INTEGER NOT NULL DEFAULT 0,
     fine_waived INTEGER NOT NULL DEFAULT 0,
     paid INTEGER NOT NULL DEFAULT 0,
+    best_hit REAL NOT NULL DEFAULT 0,
+    chain_respect_total REAL NOT NULL DEFAULT 0,
+    chain_hits_total INTEGER NOT NULL DEFAULT 0,
+    losses INTEGER NOT NULL DEFAULT 0,
+    escapes INTEGER NOT NULL DEFAULT 0,
+    draws INTEGER NOT NULL DEFAULT 0,
+    retaliation_hits INTEGER NOT NULL DEFAULT 0,
+    bonus_hits INTEGER NOT NULL DEFAULT 0,
     PRIMARY KEY (war_id, member_id)
 );
 
@@ -127,6 +135,18 @@ def _post_migrate(conn, had_legacy_fine: bool):
         conn.execute("ALTER TABLE war_members ADD COLUMN respect_lost REAL NOT NULL DEFAULT 0")
     if "paid" not in columns:
         conn.execute("ALTER TABLE war_members ADD COLUMN paid INTEGER NOT NULL DEFAULT 0")
+    for col, ddl in (
+        ("best_hit", "REAL NOT NULL DEFAULT 0"),
+        ("chain_respect_total", "REAL NOT NULL DEFAULT 0"),
+        ("chain_hits_total", "INTEGER NOT NULL DEFAULT 0"),
+        ("losses", "INTEGER NOT NULL DEFAULT 0"),
+        ("escapes", "INTEGER NOT NULL DEFAULT 0"),
+        ("draws", "INTEGER NOT NULL DEFAULT 0"),
+        ("retaliation_hits", "INTEGER NOT NULL DEFAULT 0"),
+        ("bonus_hits", "INTEGER NOT NULL DEFAULT 0"),
+    ):
+        if col not in columns:
+            conn.execute(f"ALTER TABLE war_members ADD COLUMN {col} {ddl}")
 
     war_columns = {row["name"] for row in conn.execute("PRAGMA table_info(wars)")}
     if "is_termed" not in war_columns:

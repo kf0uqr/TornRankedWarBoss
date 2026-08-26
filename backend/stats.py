@@ -38,8 +38,13 @@ def _dense_rank(items: list[tuple[int, float]], descending: bool) -> dict[int, i
 
 def rank_members(members: list[dict]) -> list[dict]:
     """members: dicts with member_id, name, inside_hits, outside_hits, assist_hits,
-    respect (gained), respect_lost. Returns the same members enriched with per-category
-    and overall dense ranks, sorted by overall rank."""
+    respect (gained), respect_lost, best_hit, chain_respect_total, chain_hits_total,
+    losses, escapes, draws, retaliation_hits, bonus_hits. Returns the same members
+    enriched with per-category and overall dense ranks, sorted by overall rank.
+
+    Overall rank/Score is still just hits + respect gained + respect lost, as
+    verified against the original sheet - the newer quality/outcome metrics below
+    are shown for reference only and aren't folded into it (yet)."""
     enriched = [{**m, "total_hits": m["inside_hits"] + m["outside_hits"] + m["assist_hits"]} for m in members]
 
     hits_rank = _dense_rank([(m["member_id"], m["total_hits"]) for m in enriched], descending=True)
@@ -51,6 +56,23 @@ def rank_members(members: list[dict]) -> list[dict]:
         m["respect_gained_rank"] = respect_gained_rank[m["member_id"]]
         m["respect_lost_rank"] = respect_lost_rank[m["member_id"]]
         m["score"] = m["hits_rank"] + m["respect_gained_rank"] + m["respect_lost_rank"]
+
+        m["avg_respect_per_hit"] = m["chain_respect_total"] / m["chain_hits_total"] if m["chain_hits_total"] else 0.0
+        failed_attempts = m["losses"] + m["escapes"] + m["draws"]
+        m["win_rate_pct"] = (
+            (m["chain_hits_total"] - failed_attempts) / m["chain_hits_total"] * 100 if m["chain_hits_total"] else 0.0
+        )
+
+    for key, descending in (
+        ("best_hit", True),
+        ("avg_respect_per_hit", True),
+        ("win_rate_pct", True),
+        ("retaliation_hits", True),
+        ("bonus_hits", True),
+    ):
+        rank = _dense_rank([(m["member_id"], m[key]) for m in enriched], descending=descending)
+        for m in enriched:
+            m[f"{key}_rank"] = rank[m["member_id"]]
 
     overall_rank = _dense_rank([(m["member_id"], m["score"]) for m in enriched], descending=False)
     for m in enriched:

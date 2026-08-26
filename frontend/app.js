@@ -83,7 +83,11 @@ function datetimeLocalToTs(value) {
   return Math.floor(new Date(value).getTime() / 1000);
 }
 
-const STAT_HEADERS = ["Name", "Total Hits", "Respect Gained", "Respect Lost", "Score", "Overall Rank"];
+const STAT_HEADERS = [
+  "Name", "Total Hits", "Respect Gained", "Respect Lost",
+  "Best Hit", "Avg Respect/Hit", "Win Rate", "Retaliation Hits", "Bonus Hits",
+  "Score", "Overall Rank",
+];
 
 function statsRowCells(m) {
   return [
@@ -91,6 +95,11 @@ function statsRowCells(m) {
     `${num(m.total_hits)} (#${m.hits_rank})`,
     `${num(m.respect, 2)} (#${m.respect_gained_rank})`,
     `${num(m.respect_lost, 2)} (#${m.respect_lost_rank})`,
+    `${num(m.best_hit, 2)} (#${m.best_hit_rank})`,
+    `${num(m.avg_respect_per_hit, 2)} (#${m.avg_respect_per_hit_rank})`,
+    `${num(m.win_rate_pct, 1)}% (#${m.win_rate_pct_rank})`,
+    `${num(m.retaliation_hits)} (#${m.retaliation_hits_rank})`,
+    `${num(m.bonus_hits)} (#${m.bonus_hits_rank})`,
     `${m.score}`,
     `#${m.overall_rank}`,
   ];
@@ -579,7 +588,7 @@ async function renderWarDetail(warId) {
         <h2>Player Stats</h2>
         <button class="action" id="copy-stats-image">Copy as Image</button>
       </div>
-      <p class="muted">Ranked on total hits, respect gained from inside hits, and least respect lost defending against inside hits. Ranks are summed into a Score, then re-ranked overall (lower is better).</p>
+      <p class="muted">Score/Overall Rank are total hits + respect gained + respect lost, summed and re-ranked (lower is better). Best Hit, Avg Respect/Hit, Win Rate, Retaliation Hits, and Bonus Hits are shown for reference and aren't part of the Score yet.</p>
       <h3>Leadership</h3>
       ${renderStatsTable(playerStats.leadership)}
       <h3 style="margin-top:18px">Everyone Else</h3>

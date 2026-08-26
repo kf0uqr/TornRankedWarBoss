@@ -196,7 +196,8 @@ def get_war_stats(war_id: int):
     try:
         _get_war_row(conn, war_id)
         member_rows = conn.execute(
-            "SELECT member_id, name, inside_hits, outside_hits, assist_hits, respect, respect_lost, pay_rank "
+            "SELECT member_id, name, inside_hits, outside_hits, assist_hits, respect, respect_lost, pay_rank, "
+            "best_hit, chain_respect_total, chain_hits_total, losses, escapes, draws, retaliation_hits, bonus_hits "
             "FROM war_members WHERE war_id = ?",
             (war_id,),
         ).fetchall()

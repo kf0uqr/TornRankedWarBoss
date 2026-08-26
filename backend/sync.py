@@ -36,8 +36,19 @@ def sync_war(client: TornClient, conn, faction_id: int, ranked_war_id: int) -> i
         names[m["id"]] = m["name"]
         levels[m["id"]] = m["level"]
 
+    # Quality/outcome stats beyond raw hit counts - also from the chain reports, since
+    # that's the only place Torn breaks a member's hits down by outcome (best single
+    # hit, losses/escapes/draws, retaliation hits landed, chain bonus hits landed).
     outside_hits: dict[int, int] = {}
     assist_hits: dict[int, int] = {}
+    best_hit: dict[int, float] = {}
+    chain_respect_total: dict[int, float] = {}
+    chain_hits_total: dict[int, int] = {}
+    losses: dict[int, int] = {}
+    escapes: dict[int, int] = {}
+    draws: dict[int, int] = {}
+    retaliation_hits: dict[int, int] = {}
+    bonus_hits: dict[int, int] = {}
     chains = client.faction_chains(faction_id, start, end)
     for chain in chains:
         chain_report = client.faction_chainreport(chain["id"])
@@ -46,6 +57,16 @@ def sync_war(client: TornClient, conn, faction_id: int, ranked_war_id: int) -> i
             atk = attacker["attacks"]
             outside_hits[mid] = outside_hits.get(mid, 0) + (atk["total"] - atk["war"])
             assist_hits[mid] = assist_hits.get(mid, 0) + atk["assists"]
+
+            resp = attacker["respect"]
+            best_hit[mid] = max(best_hit.get(mid, 0.0), resp["best"])
+            chain_respect_total[mid] = chain_respect_total.get(mid, 0.0) + resp["total"]
+            chain_hits_total[mid] = chain_hits_total.get(mid, 0) + atk["total"]
+            losses[mid] = losses.get(mid, 0) + atk["losses"]
+            escapes[mid] = escapes.get(mid, 0) + atk["escapes"]
+            draws[mid] = draws.get(mid, 0) + atk["draws"]
+            retaliation_hits[mid] = retaliation_hits.get(mid, 0) + atk["retaliations"]
+            bonus_hits[mid] = bonus_hits.get(mid, 0) + atk["bonuses"]
 
     positions: dict[int, str] = {}
     for member in client.faction_members(faction_id):
@@ -128,8 +149,9 @@ def sync_war(client: TornClient, conn, faction_id: int, ranked_war_id: int) -> i
         conn.execute(
             """
             INSERT INTO war_members
-                (war_id, member_id, name, position, level, inside_hits, outside_hits, assist_hits, respect, respect_lost, pay_rank, xanax_used, fine_waived)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                (war_id, member_id, name, position, level, inside_hits, outside_hits, assist_hits, respect, respect_lost, pay_rank, xanax_used, fine_waived,
+                 best_hit, chain_respect_total, chain_hits_total, losses, escapes, draws, retaliation_hits, bonus_hits)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             ON CONFLICT(war_id, member_id) DO UPDATE SET
                 name = excluded.name,
                 position = excluded.position,
@@ -141,7 +163,15 @@ def sync_war(client: TornClient, conn, faction_id: int, ranked_war_id: int) -> i
                 respect_lost = excluded.respect_lost,
                 pay_rank = excluded.pay_rank,
                 xanax_used = excluded.xanax_used,
-                fine_waived = excluded.fine_waived
+                fine_waived = excluded.fine_waived,
+                best_hit = excluded.best_hit,
+                chain_respect_total = excluded.chain_respect_total,
+                chain_hits_total = excluded.chain_hits_total,
+                losses = excluded.losses,
+                escapes = excluded.escapes,
+                draws = excluded.draws,
+                retaliation_hits = excluded.retaliation_hits,
+                bonus_hits = excluded.bonus_hits
             """,
             (
                 ranked_war_id,
@@ -157,6 +187,14 @@ def sync_war(client: TornClient, conn, faction_id: int, ranked_war_id: int) -> i
                 pay_rank,
                 xanax_used.get(mid, 0),
                 fine_waived,
+                best_hit.get(mid, 0.0),
+                chain_respect_total.get(mid, 0.0),
+                chain_hits_total.get(mid, 0),
+                losses.get(mid, 0),
+                escapes.get(mid, 0),
+                draws.get(mid, 0),
+                retaliation_hits.get(mid, 0),
+                bonus_hits.get(mid, 0),
             ),
         )
 
