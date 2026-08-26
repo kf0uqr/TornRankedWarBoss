@@ -1,3 +1,5 @@
+import time
+
 import httpx
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
@@ -78,6 +80,13 @@ def current_war():
         own = next(f for f in current["factions"] if f["id"] == faction_id)
         opponent = next(f for f in current["factions"] if f["id"] != faction_id)
         members = client.faction_members(opponent["id"])
+
+        own_members = client.faction_members(faction_id)
+        offense = stats.compute_live_war_offense(client, current["start"], int(time.time()))
+        for m in own_members:
+            entry = offense.get(m["id"], {"hits": 0, "respect": 0.0})
+            m["war_hits"] = entry["hits"]
+            m["war_respect"] = round(entry["respect"], 2)
     except TornAPIError as exc:
         raise torn_error_to_http(exc)
     finally:
@@ -109,6 +118,7 @@ def current_war():
             "opponent_score": opponent["score"],
         },
         "members": members,
+        "own_members": own_members,
         "ffscouter_error": ffscouter_error,
     }
 

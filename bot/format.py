@@ -207,3 +207,29 @@ def war_status_sort_key(m):
     highest level first within each group - the people worth looking at first."""
     is_okay = m["status"].get("state") == "Okay"
     return (0 if is_okay else 1, -(m["level"] or 0))
+
+
+# war_hits/war_respect are computed live from the attack log (Torn's own
+# rankedwarreport - used for the post-war paysheet - isn't available until
+# the war ends), so treat these as an estimate rather than the official score.
+OWN_WAR_HEADERS = ["Name", "Level", "Hits", "Respect", "Status", "Last Action", "Position"]
+
+
+def own_war_row(m) -> list:
+    status = m["status"]
+    status_text = abbreviate_status(status["description"] or status["state"])
+    la = m["last_action"]
+    return [
+        m["name"],
+        str(m["level"]),
+        num(m.get("war_hits", 0)),
+        num(m.get("war_respect", 0), 2),
+        {"text": status_text, "color": STATUS_COLOR_MAP.get(status.get("color"), COLORS["text"])},
+        abbreviate_relative(la["relative"]),
+        m.get("position") or "-",
+    ]
+
+
+def own_war_sort_key(m):
+    """Highest respect gained this war first, hits as the tiebreaker."""
+    return (-(m.get("war_respect") or 0), -(m.get("war_hits") or 0))

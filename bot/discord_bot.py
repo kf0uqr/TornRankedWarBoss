@@ -192,8 +192,16 @@ def build_war_status_message(data: dict) -> tuple[discord.Embed, discord.File]:
         embed.description = f"Auto-updates every {WAR_STATUS_REFRESH_MINUTES} min while this war is active"
     embed.set_footer(text="Decay/payout numbers are community-observed estimates, not official Torn data.")
 
-    rows = [fmt.war_status_row(m) for m in members]
-    png = render_tables(f"Enemy Roster - {war['opponent_name']}", [{"heading": None, "headers": fmt.WAR_STATUS_HEADERS, "rows": rows}])
+    enemy_rows = [fmt.war_status_row(m) for m in members]
+    own_members = sorted(data.get("own_members", []), key=fmt.own_war_sort_key)
+    own_rows = [fmt.own_war_row(m) for m in own_members]
+    png = render_tables(
+        f"Current War - vs {war['opponent_name']}",
+        [
+            {"heading": "Enemy Roster", "headers": fmt.WAR_STATUS_HEADERS, "rows": enemy_rows},
+            {"heading": "Our Roster", "headers": fmt.OWN_WAR_HEADERS, "rows": own_rows},
+        ],
+    )
     return embed, image_file(png, "war_status.png")
 
 

@@ -29,6 +29,25 @@ def compute_respect_lost(client: TornClient, from_ts: int, to_ts: int) -> dict[i
     return losses
 
 
+def compute_live_war_offense(client: TornClient, from_ts: int, to_ts: int) -> dict[int, dict]:
+    """Live hits + respect gained per attacker from every is_ranked_war-flagged
+    outgoing attack in [from_ts, to_ts] - an estimate of each member's current
+    contribution to an in-progress war, computed straight from the attack log
+    since Torn's own rankedwarreport (used for the post-war paysheet) only
+    becomes available once the war has ended."""
+    result: dict[int, dict] = {}
+    for atk in client.faction_attacks("outgoing", from_ts, to_ts):
+        if not atk.get("is_ranked_war"):
+            continue
+        attacker_id = atk.get("attacker", {}).get("id")
+        if attacker_id is None:
+            continue
+        entry = result.setdefault(attacker_id, {"hits": 0, "respect": 0.0})
+        entry["hits"] += 1
+        entry["respect"] += atk.get("respect_gain") or 0.0
+    return result
+
+
 def _dense_rank(items: list[tuple[int, float]], descending: bool) -> dict[int, int]:
     """items: (member_id, metric) pairs. Returns member_id -> rank, 1 = best."""
     distinct_values = sorted({value for _, value in items}, reverse=descending)
