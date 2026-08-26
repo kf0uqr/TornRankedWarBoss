@@ -91,7 +91,9 @@ def current_war():
             for m in members:
                 entry = stats_by_id.get(m["id"])
                 if entry:
-                    m["fair_fight"] = entry.get("fair_fight")
+                    # Fair Fight is specific to the API key owner's own stats vs.
+                    # the target, so it's not meaningful to show everyone the
+                    # same number - only the estimated stats are broadcast-worthy.
                     m["bs_estimate_human"] = entry.get("bs_estimate_human")
         except (httpx.HTTPError, ffscouter.FFScouterError) as exc:
             ffscouter_error = str(exc)

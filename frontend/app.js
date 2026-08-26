@@ -421,13 +421,13 @@ async function renderSettings() {
     </div>
 
     <div class="card">
-      <h2>FFScouter (Fair Fight)</h2>
+      <h2>FFScouter (Estimated Stats)</h2>
       <p class="muted">
         Torn's own API doesn't expose enemy battle stats, so the Discord bot's <code>/current_war</code> board pulls
-        Fair Fight and estimated stats from <a href="https://ffscouter.com" target="_blank" rel="noopener">ffscouter.com</a>
+        estimated stats from <a href="https://ffscouter.com" target="_blank" rel="noopener">ffscouter.com</a>
         instead, if you have an account there. This is a separate key from your Torn API key - register one at
         <a href="https://ffscouter.com/api-docs" target="_blank" rel="noopener">ffscouter.com/api-docs</a>. Optional -
-        without it, the board just shows "-" for those two columns.
+        without it, the board just shows "-" for that column.
       </p>
       <div class="row">
         <label>FFScouter API Key<br/><input type="password" id="ffscouter-key" placeholder="${settings.has_ffscouter_api_key ? settings.ffscouter_api_key_masked + " (already set)" : "paste FFScouter API key"}" style="width:280px" /></label>

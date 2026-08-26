@@ -24,10 +24,11 @@ CAREER_HEADERS = [
 ARMORY_HEADERS = ["Item", "Target Qty", "On Hand", "Needed", "Unit Price", "Cost"]
 
 # Torn's own API doesn't expose battle stats for an enemy faction (that needs
-# a spy report), so Fair Fight / estimated stats here come from ffscouter.com
-# (see backend/ffscouter.py) when a key is configured in Settings - otherwise
-# those two columns just show "-".
-WAR_STATUS_HEADERS = ["Name", "Level", "Fair Fight", "Est. Stats", "Status", "Last Action", "Position", "On Wall", "Revivable"]
+# a spy report), so estimated stats here come from ffscouter.com (see
+# backend/ffscouter.py) when a key is configured in Settings - otherwise that
+# column just shows "-". Fair Fight isn't shown: it's computed relative to the
+# API key owner's own stats, so it's not a meaningful number to broadcast.
+WAR_STATUS_HEADERS = ["Name", "Level", "Est. Stats", "Status", "Last Action", "Position", "On Wall", "Revivable"]
 
 STATUS_COLOR_MAP = {
     "green": COLORS["good"],
@@ -126,21 +127,6 @@ def armory_totals_row(lines: list) -> list:
     ]
 
 
-def fair_fight_cell(m):
-    ff = m.get("fair_fight")
-    if ff is None:
-        return "-"
-    # FFScouter's own convention: >3 is a poor fight for you, <1 barely counts -
-    # green/yellow/red bands make the worthwhile targets jump out in the table.
-    if ff <= 1.5:
-        color = COLORS["text_dim"]
-    elif ff <= 3.0:
-        color = COLORS["good"]
-    else:
-        color = COLORS["bad"]
-    return {"text": f"{ff:.2f}", "color": color}
-
-
 def war_status_row(m) -> list:
     status = m["status"]
     # Torn's own description already reads e.g. "In hospital for 14 mins" -
@@ -150,7 +136,6 @@ def war_status_row(m) -> list:
     return [
         m["name"],
         str(m["level"]),
-        fair_fight_cell(m),
         m.get("bs_estimate_human") or "-",
         {"text": status_text, "color": STATUS_COLOR_MAP.get(status.get("color"), COLORS["text"])},
         la["relative"],
@@ -161,9 +146,7 @@ def war_status_row(m) -> list:
 
 
 def war_status_sort_key(m):
-    """Okay (attackable) members first; within that group, best Fair Fight
-    first when we have scouting data, else fall back to highest level -
-    surfaces the people actually worth looking at first."""
+    """Okay (attackable) members first, then everyone else grouped by status,
+    highest level first within each group - the people worth looking at first."""
     is_okay = m["status"].get("state") == "Okay"
-    ff = m.get("fair_fight")
-    return (0 if is_okay else 1, -(ff if ff is not None else 0), -(m["level"] or 0))
+    return (0 if is_okay else 1, -(m["level"] or 0))
