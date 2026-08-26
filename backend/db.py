@@ -59,6 +59,7 @@ CREATE TABLE IF NOT EXISTS discord_allowed_users (
     discord_user_id TEXT NOT NULL UNIQUE,
     label TEXT,
     torn_player_id INTEGER,
+    is_leadership INTEGER NOT NULL DEFAULT 0,
     added_at INTEGER
 );
 
@@ -195,6 +196,12 @@ def _post_migrate(conn, had_legacy_fine: bool):
     allowed_user_columns = {row["name"] for row in conn.execute("PRAGMA table_info(discord_allowed_users)")}
     if "torn_player_id" not in allowed_user_columns:
         conn.execute("ALTER TABLE discord_allowed_users ADD COLUMN torn_player_id INTEGER")
+    if "is_leadership" not in allowed_user_columns:
+        # Grandfather in everyone already on the list as leadership - they
+        # had full access before this distinction existed, so this preserves
+        # that rather than silently locking anyone out.
+        conn.execute("ALTER TABLE discord_allowed_users ADD COLUMN is_leadership INTEGER NOT NULL DEFAULT 0")
+        conn.execute("UPDATE discord_allowed_users SET is_leadership = 1")
 
     if had_legacy_fine:
         conn.execute(
@@ -342,7 +349,8 @@ def list_discord_allowed_users() -> list[dict]:
     conn = get_connection()
     try:
         rows = conn.execute(
-            "SELECT id, discord_user_id, label, torn_player_id, added_at FROM discord_allowed_users ORDER BY id"
+            "SELECT id, discord_user_id, label, torn_player_id, is_leadership, added_at "
+            "FROM discord_allowed_users ORDER BY id"
         ).fetchall()
         return [dict(r) for r in rows]
     finally:
@@ -353,6 +361,17 @@ def get_discord_allowed_user_ids() -> set[str]:
     conn = get_connection()
     try:
         rows = conn.execute("SELECT discord_user_id FROM discord_allowed_users").fetchall()
+        return {r["discord_user_id"] for r in rows}
+    finally:
+        conn.close()
+
+
+def get_discord_leadership_user_ids() -> set[str]:
+    conn = get_connection()
+    try:
+        rows = conn.execute(
+            "SELECT discord_user_id FROM discord_allowed_users WHERE is_leadership = 1"
+        ).fetchall()
         return {r["discord_user_id"] for r in rows}
     finally:
         conn.close()
@@ -369,18 +388,24 @@ def get_torn_id_to_discord_id_map() -> dict[int, str]:
         conn.close()
 
 
-def add_discord_allowed_user(discord_user_id: str, label: str | None, torn_player_id: int | None = None) -> None:
+def add_discord_allowed_user(
+    discord_user_id: str,
+    label: str | None,
+    torn_player_id: int | None = None,
+    is_leadership: bool = False,
+) -> None:
     conn = get_connection()
     try:
         conn.execute(
             """
-            INSERT INTO discord_allowed_users (discord_user_id, label, torn_player_id, added_at)
-            VALUES (?, ?, ?, ?)
+            INSERT INTO discord_allowed_users (discord_user_id, label, torn_player_id, is_leadership, added_at)
+            VALUES (?, ?, ?, ?, ?)
             ON CONFLICT(discord_user_id) DO UPDATE SET
                 label = excluded.label,
-                torn_player_id = excluded.torn_player_id
+                torn_player_id = excluded.torn_player_id,
+                is_leadership = excluded.is_leadership
             """,
-            (discord_user_id, label, torn_player_id, int(time.time())),
+            (discord_user_id, label, torn_player_id, 1 if is_leadership else 0, int(time.time())),
         )
         conn.commit()
     finally:

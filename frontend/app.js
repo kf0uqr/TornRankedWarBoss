@@ -401,12 +401,13 @@ async function renderSettings() {
 
       <h3 style="margin-top:16px">Allowed Discord Users</h3>
       <p class="muted">
-        Only these Discord accounts can use the bot's commands - everyone else is ignored. Torn Player ID is
-        optional and separate from that - it's how the bot knows who to @mention for self-hosp and revives-off
-        alerts, and doesn't affect command access.
+        Only these Discord accounts can use the bot's commands - everyone else is ignored. Leadership controls
+        which commands they can run: leadership-only commands reject anyone unchecked here (right now that's
+        every command except <code>/add_api_key</code>, which is open to any Discord user). Torn Player ID is
+        separate from both - it's how the bot knows who to @mention for self-hosp and revives-off alerts.
       </p>
       <table>
-        <thead><tr><th>Label</th><th>Discord User ID</th><th>Torn Player ID</th><th></th></tr></thead>
+        <thead><tr><th>Label</th><th>Discord User ID</th><th>Torn Player ID</th><th>Leadership</th><th></th></tr></thead>
         <tbody id="discord-user-rows">
           ${discordUsers
             .map(
@@ -415,16 +416,18 @@ async function renderSettings() {
               <td>${u.label || "-"}</td>
               <td class="muted">${u.discord_user_id}</td>
               <td class="muted">${u.torn_player_id ?? "-"}</td>
+              <td><input type="checkbox" data-leadership-toggle="${u.discord_user_id}" ${u.is_leadership ? "checked" : ""} /></td>
               <td><button class="danger" data-del-discord-user="${u.id}">Remove</button></td>
             </tr>`
             )
-            .join("") || `<tr><td colspan="4" class="muted">No one added yet.</td></tr>`}
+            .join("") || `<tr><td colspan="5" class="muted">No one added yet.</td></tr>`}
         </tbody>
       </table>
       <div class="row" style="margin-top:10px">
         <input id="new-discord-user-id" placeholder="Discord User ID" style="width:180px" />
         <input id="new-discord-user-label" placeholder="Label (e.g. a name)" style="width:200px" />
         <input id="new-discord-user-torn-id" placeholder="Torn Player ID (optional)" type="number" style="width:180px" />
+        <label class="muted" style="display:flex;align-items:center;gap:4px"><input type="checkbox" id="new-discord-user-leadership" /> Leadership</label>
         <button class="action" id="add-discord-user">Add</button>
       </div>
       <p class="muted">Re-adding an existing Discord User ID updates its label/Torn Player ID instead of duplicating the row.</p>
@@ -555,13 +558,36 @@ async function renderSettings() {
     const id = root.querySelector("#new-discord-user-id").value.trim();
     const label = root.querySelector("#new-discord-user-label").value.trim();
     const tornId = root.querySelector("#new-discord-user-torn-id").value.trim();
+    const isLeadership = root.querySelector("#new-discord-user-leadership").checked;
     if (!id) return;
     await api("/api/settings/discord-allowed-users", {
       method: "POST",
-      body: JSON.stringify({ discord_user_id: id, label: label || null, torn_player_id: tornId ? Number(tornId) : null }),
+      body: JSON.stringify({
+        discord_user_id: id,
+        label: label || null,
+        torn_player_id: tornId ? Number(tornId) : null,
+        is_leadership: isLeadership,
+      }),
     });
     toast("Discord user added");
     renderSettings();
+  });
+
+  root.querySelectorAll("[data-leadership-toggle]").forEach((checkbox) => {
+    checkbox.addEventListener("change", async () => {
+      const u = discordUsers.find((u) => u.discord_user_id === checkbox.dataset.leadershipToggle);
+      if (!u) return;
+      await api("/api/settings/discord-allowed-users", {
+        method: "POST",
+        body: JSON.stringify({
+          discord_user_id: u.discord_user_id,
+          label: u.label,
+          torn_player_id: u.torn_player_id,
+          is_leadership: checkbox.checked,
+        }),
+      });
+      toast(checkbox.checked ? `${u.label || u.discord_user_id} is now leadership` : `${u.label || u.discord_user_id} is no longer leadership`);
+    });
   });
 
   root.querySelectorAll("[data-del-discord-user]").forEach((btn) => {

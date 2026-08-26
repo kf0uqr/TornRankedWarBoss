@@ -39,6 +39,7 @@ class DiscordAllowedUserIn(BaseModel):
     discord_user_id: str
     label: str | None = None
     torn_player_id: int | None = None
+    is_leadership: bool = False
 
 
 class DiscordAlertChannelIdIn(BaseModel):
@@ -177,6 +178,7 @@ def add_discord_allowed_user(body: DiscordAllowedUserIn):
         body.discord_user_id.strip(),
         body.label.strip() if body.label else None,
         body.torn_player_id,
+        body.is_leadership,
     )
     return _discord_allowed_users_out()
 

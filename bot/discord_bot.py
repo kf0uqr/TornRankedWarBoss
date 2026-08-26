@@ -64,10 +64,30 @@ def is_allowed(user_id: int) -> bool:
     return str(user_id) in db.get_discord_allowed_user_ids()
 
 
+def is_leadership(user_id: int) -> bool:
+    return str(user_id) in db.get_discord_leadership_user_ids()
+
+
 async def ensure_allowed(interaction: discord.Interaction) -> bool:
+    """Base tier - anyone on the allowed-users list, leadership or not. Use
+    this for commands meant to be open to the whole faction once any exist;
+    right now every command actually uses ensure_leadership() instead."""
     if is_allowed(interaction.user.id):
         return True
     await interaction.response.send_message("You're not authorized to use this bot.", ephemeral=True)
+    return False
+
+
+async def ensure_leadership(interaction: discord.Interaction) -> bool:
+    """Leadership tier - on the allowed-users list AND checked as leadership
+    there. Everything except /add_api_key (intentionally open to anyone) uses
+    this for now."""
+    if is_leadership(interaction.user.id):
+        return True
+    if is_allowed(interaction.user.id):
+        await interaction.response.send_message("This command is restricted to leadership.", ephemeral=True)
+    else:
+        await interaction.response.send_message("You're not authorized to use this bot.", ephemeral=True)
     return False
 
 
@@ -433,7 +453,7 @@ async def add_api_key_command(interaction: discord.Interaction, key: str, label:
 
 @bot.tree.command(name="wars", description="List synced ranked wars")
 async def wars_command(interaction: discord.Interaction):
-    if not await ensure_allowed(interaction):
+    if not await ensure_leadership(interaction):
         return
     await interaction.response.defer()
     try:
@@ -450,7 +470,7 @@ async def wars_command(interaction: discord.Interaction):
 
 @bot.tree.command(name="current_war", description="Post live-updating status boards for the current ranked war")
 async def current_war_command(interaction: discord.Interaction):
-    if not await ensure_allowed(interaction):
+    if not await ensure_leadership(interaction):
         return
     if interaction.channel is None:
         await interaction.response.send_message("This command needs to be run in a channel.", ephemeral=True)
@@ -496,7 +516,7 @@ async def current_war_command(interaction: discord.Interaction):
 @bot.tree.command(name="paysheet", description="Show the paysheet for a war (defaults to most recent)")
 @app_commands.describe(war_id="War ID from /wars - leave blank for the most recent")
 async def paysheet_command(interaction: discord.Interaction, war_id: int | None = None):
-    if not await ensure_allowed(interaction):
+    if not await ensure_leadership(interaction):
         return
     await interaction.response.defer()
     try:
@@ -527,7 +547,7 @@ async def paysheet_command(interaction: discord.Interaction, war_id: int | None 
 @bot.tree.command(name="stats", description="Show player stats for a war (defaults to most recent)")
 @app_commands.describe(war_id="War ID from /wars - leave blank for the most recent")
 async def stats_command(interaction: discord.Interaction, war_id: int | None = None):
-    if not await ensure_allowed(interaction):
+    if not await ensure_leadership(interaction):
         return
     await interaction.response.defer()
     try:
@@ -561,7 +581,7 @@ async def stats_command(interaction: discord.Interaction, war_id: int | None = N
 
 @bot.tree.command(name="career", description="Show the career stats leaderboard (all synced wars)")
 async def career_command(interaction: discord.Interaction):
-    if not await ensure_allowed(interaction):
+    if not await ensure_leadership(interaction):
         return
     await interaction.response.defer()
     try:
@@ -582,7 +602,7 @@ async def career_command(interaction: discord.Interaction):
 
 @bot.tree.command(name="armory", description="Show the armory restock summary")
 async def armory_command(interaction: discord.Interaction):
-    if not await ensure_allowed(interaction):
+    if not await ensure_leadership(interaction):
         return
     await interaction.response.defer()
     try:

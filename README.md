@@ -83,7 +83,7 @@ Both need each player's Torn ID linked to their Discord ID to @mention them by n
 2. Under **OAuth2 → URL Generator**, check **both** `bot` and `applications.commands`, then open the generated URL to invite it to your server. If you only check `bot`, the bot joins fine but slash commands fail to register with a `403 Forbidden` error — if you hit that, re-generate the URL with both boxes checked and re-invite it (re-inviting with the extra scope is safe, it won't duplicate the bot).
 3. In the app's **Settings** tab, paste the bot token under "Discord Bot" and save.
 4. (Optional but recommended for testing) Add your Discord server's ID as the "Server (Guild) ID" — this makes new slash commands show up instantly instead of waiting up to an hour for Discord's global sync.
-5. Add each leader's Discord **User ID** (not username) under "Allowed Discord Users" — turn on Developer Mode in Discord (Settings → Advanced) to right-click someone and "Copy User ID". Only these accounts can use the bot's commands.
+5. Add each faction member's Discord **User ID** (not username) under "Allowed Discord Users" — turn on Developer Mode in Discord (Settings → Advanced) to right-click someone and "Copy User ID". Only these accounts can use the bot's commands at all, and check **Leadership** for anyone who should have access to leadership-only commands (currently that's every command except `/add_api_key`, which is open to any Discord user - see below for what "leadership-only" gates).
 6. Run the bot as its own process:
 
 ```bash
