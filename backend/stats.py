@@ -105,6 +105,11 @@ def compute_career_stats(current_members: list[dict], war_member_rows: list[dict
         r["avg_hits_rank"] = avg_hits_rank[r["member_id"]]
         r["avg_respect_gained_rank"] = avg_respect_gained_rank[r["member_id"]]
         r["avg_respect_lost_rank"] = avg_respect_lost_rank[r["member_id"]]
+        r["score"] = r["avg_hits_rank"] + r["avg_respect_gained_rank"] + r["avg_respect_lost_rank"]
 
-    results.sort(key=lambda r: r["avg_hits_rank"])
+    overall_rank = _dense_rank([(r["member_id"], r["score"]) for r in results], descending=False)
+    for r in results:
+        r["overall_rank"] = overall_rank[r["member_id"]]
+
+    results.sort(key=lambda r: r["overall_rank"])
     return results

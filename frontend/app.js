@@ -809,6 +809,7 @@ async function renderArmory() {
 // ---------- Career Stats ----------
 
 const CAREER_STAT_TABS = [
+  { key: "overall", rankKey: "overall_rank", label: "Overall" },
   { key: "avg_hits", rankKey: "avg_hits_rank", label: "Avg Hits Made" },
   { key: "avg_respect_gained", rankKey: "avg_respect_gained_rank", label: "Avg Respect Gained" },
   { key: "avg_respect_lost", rankKey: "avg_respect_lost_rank", label: "Avg Respect Lost" },
@@ -835,6 +836,8 @@ async function renderCareerStats() {
         <td>${num(m.avg_hits, 1)} <span class="muted">(#${m.avg_hits_rank})</span></td>
         <td>${num(m.avg_respect_gained, 2)} <span class="muted">(#${m.avg_respect_gained_rank})</span></td>
         <td>${num(m.avg_respect_lost, 2)} <span class="muted">(#${m.avg_respect_lost_rank})</span></td>
+        <td>${m.score}</td>
+        <td><strong>#${m.overall_rank}</strong></td>
       </tr>`
       )
       .join("");
@@ -844,6 +847,7 @@ async function renderCareerStats() {
           <tr>
             <th>Name</th><th>Position</th><th>Wars Played</th>
             <th>Avg Hits Made</th><th>Avg Respect Gained</th><th>Avg Respect Lost</th>
+            <th>Score</th><th>Overall Rank</th>
           </tr>
         </thead>
         <tbody>${rows}</tbody>
