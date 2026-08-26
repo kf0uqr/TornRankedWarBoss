@@ -96,7 +96,12 @@ def table_block(rows: list[str], header: str | None = None) -> str:
     return text[:1024]
 
 
-def image_file(png_bytes: bytes, filename: str) -> discord.File:
+def image_file(embed: discord.Embed, png_bytes: bytes, filename: str) -> discord.File:
+    """Attaching a file to a message alongside its embed (rather than linking
+    it into the embed) makes Discord render it as a smaller, separately-
+    stacked thumbnail - set_image binds it into the embed card itself instead,
+    which Discord displays noticeably larger."""
+    embed.set_image(url=f"attachment://{filename}")
     return discord.File(io.BytesIO(png_bytes), filename=filename)
 
 
@@ -202,7 +207,7 @@ def build_war_status_message(data: dict) -> tuple[discord.Embed, discord.File]:
             {"heading": "Our Roster", "headers": fmt.OWN_WAR_HEADERS, "rows": own_rows},
         ],
     )
-    return embed, image_file(png, "war_status.png")
+    return embed, image_file(embed, png, "war_status.png")
 
 
 @bot.event
@@ -308,7 +313,7 @@ async def paysheet_command(interaction: discord.Interaction, war_id: int | None 
 
     rows = [fmt.paysheet_row(m) for m in members] + [fmt.paysheet_totals_row(members)]
     png = render_tables(embed.title, [{"heading": None, "headers": fmt.PAYSHEET_HEADERS, "rows": rows}])
-    await interaction.followup.send(embed=embed, file=image_file(png, "paysheet.png"))
+    await interaction.followup.send(embed=embed, file=image_file(embed, png, "paysheet.png"))
 
 
 @bot.tree.command(name="stats", description="Show player stats for a war (defaults to most recent)")
@@ -343,7 +348,7 @@ async def stats_command(interaction: discord.Interaction, war_id: int | None = N
         await interaction.followup.send("No stats for this war.")
         return
     png = render_tables(embed.title, sections)
-    await interaction.followup.send(embed=embed, file=image_file(png, "stats.png"))
+    await interaction.followup.send(embed=embed, file=image_file(embed, png, "stats.png"))
 
 
 @bot.tree.command(name="career", description="Show the career stats leaderboard (all synced wars)")
@@ -364,7 +369,7 @@ async def career_command(interaction: discord.Interaction):
     embed = discord.Embed(title="Career Leaderboard", color=0x5DA9FF)
     rows = [fmt.career_row(m) for m in members]
     png = render_tables(embed.title, [{"heading": None, "headers": fmt.CAREER_HEADERS, "rows": rows}])
-    await interaction.followup.send(embed=embed, file=image_file(png, "career.png"))
+    await interaction.followup.send(embed=embed, file=image_file(embed, png, "career.png"))
 
 
 @bot.tree.command(name="armory", description="Show the armory restock summary")
@@ -387,7 +392,7 @@ async def armory_command(interaction: discord.Interaction):
         return
     rows = [fmt.armory_row(l) for l in needed] + [fmt.armory_totals_row(needed)]
     png = render_tables(embed.title, [{"heading": None, "headers": fmt.ARMORY_HEADERS, "rows": rows}])
-    await interaction.followup.send(embed=embed, file=image_file(png, "armory.png"))
+    await interaction.followup.send(embed=embed, file=image_file(embed, png, "armory.png"))
 
 
 @tasks.loop(minutes=WAR_STATUS_REFRESH_MINUTES)
