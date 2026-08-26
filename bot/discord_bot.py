@@ -26,12 +26,14 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 from backend import db  # noqa: E402
 from bot import decay  # noqa: E402
 from bot import format as fmt  # noqa: E402
+from bot import travel  # noqa: E402
 from bot.render import render_tables  # noqa: E402
 
 APP_BASE_URL = "http://localhost:8787"
 WAR_STATUS_REFRESH_MINUTES = 5
 
 _score_history = decay.ScoreHistory()
+_travel_tracker = travel.TravelTracker()
 
 
 class TornBossClient(discord.Client):
@@ -196,6 +198,27 @@ def build_enemy_status_message(data: dict) -> tuple[discord.Embed, discord.File]
         if len(hospitalized) > 20:
             lines.append(f"+{len(hospitalized) - 20} more")
         embed.add_field(name="In Hospital", value="\n".join(lines), inline=False)
+
+    # Torn's API doesn't give an exact arrival time, but this board refreshes
+    # every 5 minutes - so a member's takeoff (first observed "Traveling") is
+    # known accurate to within that window, and estimated arrival = takeoff +
+    # Torn's standard travel duration for their destination. See bot/travel.py
+    # for the (unavoidable) assumptions this makes.
+    _travel_tracker.record(war["id"], members)
+    landings = []
+    for m in members:
+        arrival = _travel_tracker.estimated_arrival(m["id"])
+        if arrival:
+            landings.append((m, arrival))
+    if landings:
+        landings.sort(key=lambda pair: pair[1])
+        lines = [
+            f"[{m['name']}](https://www.torn.com/profiles.php?XID={m['id']}) - <t:{arrival}:R>"
+            for m, arrival in landings[:20]
+        ]
+        if len(landings) > 20:
+            lines.append(f"+{len(landings) - 20} more")
+        embed.add_field(name="Est. Landing (standard speed assumed)", value="\n".join(lines), inline=False)
 
     embed.set_footer(text="Decay/payout numbers are community-observed estimates, not official Torn data.")
 
