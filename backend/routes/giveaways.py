@@ -8,6 +8,8 @@ router = APIRouter(prefix="/api/giveaways", tags=["giveaways"])
 
 class GiveawayIn(BaseModel):
     channel_id: str
+    name: str
+    description: str | None = None
     item: str
     num_winners: int
     ends_at: int
@@ -35,7 +37,9 @@ def _get_or_404(giveaway_id: int) -> dict:
 
 @router.post("")
 def create_giveaway(body: GiveawayIn):
-    giveaway_id = db.create_giveaway(body.channel_id, body.item, body.num_winners, body.ends_at, body.created_by)
+    giveaway_id = db.create_giveaway(
+        body.channel_id, body.name, body.description, body.item, body.num_winners, body.ends_at, body.created_by
+    )
     return db.get_giveaway(giveaway_id)
 
 
@@ -77,4 +81,13 @@ def get_giveaway_entries(giveaway_id: int):
 def finalize_giveaway(giveaway_id: int, body: GiveawayFinalizeIn):
     _get_or_404(giveaway_id)
     db.finalize_giveaway(giveaway_id, body.winner_discord_user_ids)
+    return db.get_giveaway(giveaway_id)
+
+
+@router.post("/{giveaway_id}/cancel")
+def cancel_giveaway(giveaway_id: int):
+    giveaway = _get_or_404(giveaway_id)
+    if giveaway["status"] != "active":
+        raise HTTPException(status_code=400, detail="This giveaway isn't running")
+    db.cancel_giveaway(giveaway_id)
     return db.get_giveaway(giveaway_id)

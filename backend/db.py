@@ -144,6 +144,8 @@ CREATE TABLE IF NOT EXISTS giveaways (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     channel_id TEXT NOT NULL,
     message_id TEXT,
+    name TEXT NOT NULL DEFAULT '',
+    description TEXT,
     item TEXT NOT NULL,
     num_winners INTEGER NOT NULL,
     ends_at INTEGER NOT NULL,
@@ -227,6 +229,13 @@ def _post_migrate(conn, had_legacy_fine: bool):
         # that rather than silently locking anyone out.
         conn.execute("ALTER TABLE discord_allowed_users ADD COLUMN is_leadership INTEGER NOT NULL DEFAULT 0")
         conn.execute("UPDATE discord_allowed_users SET is_leadership = 1")
+
+    if _table_exists(conn, "giveaways"):
+        giveaway_columns = {row["name"] for row in conn.execute("PRAGMA table_info(giveaways)")}
+        if "name" not in giveaway_columns:
+            conn.execute("ALTER TABLE giveaways ADD COLUMN name TEXT NOT NULL DEFAULT ''")
+        if "description" not in giveaway_columns:
+            conn.execute("ALTER TABLE giveaways ADD COLUMN description TEXT")
 
     if had_legacy_fine:
         conn.execute(
@@ -566,15 +575,24 @@ def get_activity_estimates() -> dict[str, dict[str, dict]]:
     return estimates
 
 
-def create_giveaway(channel_id: str, item: str, num_winners: int, ends_at: int, created_by: str | None) -> int:
+def create_giveaway(
+    channel_id: str,
+    name: str,
+    description: str | None,
+    item: str,
+    num_winners: int,
+    ends_at: int,
+    created_by: str | None,
+) -> int:
     conn = get_connection()
     try:
         cur = conn.execute(
             """
-            INSERT INTO giveaways (channel_id, item, num_winners, ends_at, created_by, created_at, status)
-            VALUES (?, ?, ?, ?, ?, ?, 'active')
+            INSERT INTO giveaways
+                (channel_id, name, description, item, num_winners, ends_at, created_by, created_at, status)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'active')
             """,
-            (channel_id, item, num_winners, ends_at, created_by, int(time.time())),
+            (channel_id, name, description, item, num_winners, ends_at, created_by, int(time.time())),
         )
         conn.commit()
         return cur.lastrowid
@@ -652,6 +670,17 @@ def finalize_giveaway(giveaway_id: int, winner_discord_user_ids: list[str]) -> N
             "INSERT OR IGNORE INTO giveaway_winners (giveaway_id, discord_user_id) VALUES (?, ?)",
             [(giveaway_id, uid) for uid in winner_discord_user_ids],
         )
+        conn.commit()
+    finally:
+        conn.close()
+
+
+def cancel_giveaway(giveaway_id: int) -> None:
+    """Distinct status from 'ended' (a completed draw) so a cancelled
+    giveaway's history isn't mistaken for one that ran to completion."""
+    conn = get_connection()
+    try:
+        conn.execute("UPDATE giveaways SET status = 'cancelled' WHERE id = ?", (giveaway_id,))
         conn.commit()
     finally:
         conn.close()

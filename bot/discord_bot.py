@@ -389,11 +389,14 @@ def build_activity_heatmap_message(data: dict, activity_estimates: dict) -> tupl
 
 
 def build_giveaway_embed(giveaway: dict, entry_count: int) -> discord.Embed:
-    embed = discord.Embed(title="🎉 Giveaway!", description=f"**{giveaway['item']}**", color=0x5DA9FF)
+    embed = discord.Embed(title=f"🎉 {giveaway['name']}", color=0x5DA9FF)
+    if giveaway.get("description"):
+        embed.description = giveaway["description"]
+    embed.add_field(name="Prize", value=giveaway["item"], inline=False)
     embed.add_field(name="Winners", value=str(giveaway["num_winners"]))
     embed.add_field(name="Entries", value=str(entry_count))
     embed.add_field(name="Ends", value=f"<t:{giveaway['ends_at']}:R>", inline=False)
-    embed.set_footer(text="Click below to enter - one entry per person.")
+    embed.set_footer(text=f"Giveaway #{giveaway['id']} - click below to enter, one entry per person.")
     return embed
 
 
@@ -726,11 +729,20 @@ async def armory_command(interaction: discord.Interaction):
 
 @bot.tree.command(name="new_giveaway", description="Start a giveaway - anyone can enter with a button, winner(s) chosen at random when it ends")
 @app_commands.describe(
+    name="Short name/title for the giveaway",
+    item="What's being given away",
     duration="How long it runs, e.g. 1h30m, 2d, 45s",
     winners="Number of winners",
-    item="What's being given away",
+    description="Optional extra details/rules shown on the post",
 )
-async def new_giveaway_command(interaction: discord.Interaction, duration: str, winners: int, item: str):
+async def new_giveaway_command(
+    interaction: discord.Interaction,
+    name: str,
+    item: str,
+    duration: str,
+    winners: int,
+    description: str | None = None,
+):
     # Base tier, not leadership - open to everyone on the allowed list.
     if not await ensure_allowed(interaction):
         return
@@ -749,6 +761,9 @@ async def new_giveaway_command(interaction: discord.Interaction, duration: str, 
     if winners < 1:
         await interaction.response.send_message("Need at least 1 winner.", ephemeral=True)
         return
+    if not name.strip():
+        await interaction.response.send_message("Need a name for the giveaway.", ephemeral=True)
+        return
     if not item.strip():
         await interaction.response.send_message("Need to say what's being given away.", ephemeral=True)
         return
@@ -760,6 +775,8 @@ async def new_giveaway_command(interaction: discord.Interaction, duration: str, 
             "/api/giveaways",
             {
                 "channel_id": str(interaction.channel.id),
+                "name": name.strip(),
+                "description": description.strip() if description else None,
                 "item": item.strip(),
                 "num_winners": winners,
                 "ends_at": ends_at,
@@ -779,6 +796,64 @@ async def new_giveaway_command(interaction: discord.Interaction, duration: str, 
     await api_post(f"/api/giveaways/{giveaway['id']}/message", {"message_id": str(message.id)})
 
     await interaction.followup.send(f"Giveaway started - ends <t:{ends_at}:R>.", ephemeral=True)
+
+
+async def _giveaway_autocomplete(interaction: discord.Interaction, current: str) -> list[app_commands.Choice[int]]:
+    try:
+        active = await api_get("/api/giveaways/active")
+    except Exception:
+        return []
+    choices = []
+    for g in active:
+        label = f"{g['name']} - {g['item']} (#{g['id']})"
+        if current.lower() in label.lower():
+            choices.append(app_commands.Choice(name=label[:100], value=g["id"]))
+    return choices[:25]
+
+
+@bot.tree.command(name="del_giveaway", description="Cancel a currently-running giveaway")
+@app_commands.describe(giveaway="Which giveaway to cancel")
+@app_commands.autocomplete(giveaway=_giveaway_autocomplete)
+async def del_giveaway_command(interaction: discord.Interaction, giveaway: int):
+    # Base tier, not leadership - but only the giveaway's own creator or
+    # leadership can actually cancel it (checked below), so being on the
+    # allowed list alone isn't enough to cancel someone else's giveaway.
+    if not await ensure_allowed(interaction):
+        return
+
+    try:
+        g = await api_get(f"/api/giveaways/{giveaway}")
+    except Exception as e:
+        await interaction.response.send_message(f"Couldn't find that giveaway: {e}", ephemeral=True)
+        return
+    if g["status"] != "active":
+        await interaction.response.send_message("That giveaway isn't running anymore.", ephemeral=True)
+        return
+
+    is_creator = g.get("created_by") == str(interaction.user.id)
+    if not (is_creator or is_leadership(interaction.user.id)):
+        await interaction.response.send_message("Only the giveaway's creator or leadership can cancel it.", ephemeral=True)
+        return
+
+    await interaction.response.defer(ephemeral=True)
+    try:
+        await api_post(f"/api/giveaways/{giveaway}/cancel", {})
+    except Exception as e:
+        await interaction.followup.send(f"Couldn't cancel: {e}", ephemeral=True)
+        return
+
+    if g.get("message_id"):
+        try:
+            channel = bot.get_channel(int(g["channel_id"])) or await bot.fetch_channel(int(g["channel_id"]))
+            message = await channel.fetch_message(int(g["message_id"]))
+            cancelled_embed = build_giveaway_embed(g, g.get("entry_count", 0))
+            cancelled_embed.title = f"🚫 {g['name']} - Cancelled"
+            cancelled_embed.color = 0xE0615B
+            await message.edit(embed=cancelled_embed, view=None)
+        except (discord.NotFound, discord.Forbidden):
+            pass
+
+    await interaction.followup.send("Giveaway cancelled.", ephemeral=True)
 
 
 @tasks.loop(seconds=GIVEAWAY_CHECK_SECONDS)
