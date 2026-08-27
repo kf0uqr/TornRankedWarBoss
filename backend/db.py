@@ -387,6 +387,32 @@ def get_api_keys() -> list[str]:
         conn.close()
 
 
+# Reserved for the Discord bot's own background polling (mainly the
+# /current_war refresh loop) so it can never consume the whole pool and
+# starve an interactive web app user - the web app gets everything else.
+# Fixed count rather than a percentage: as the pool grows, the bot's own
+# steady-state call volume doesn't grow with it, so it doesn't need a bigger
+# share, and a human loading a data-heavy page benefits more from a bigger
+# pool than the bot does.
+BOT_RESERVED_KEY_COUNT = 2
+
+
+def get_web_api_keys() -> list[str]:
+    """Keys for interactive (human) requests - takes priority over the bot,
+    so this gets everything not explicitly reserved for it."""
+    keys = get_api_keys()
+    if len(keys) <= BOT_RESERVED_KEY_COUNT:
+        return keys
+    return keys[:-BOT_RESERVED_KEY_COUNT]
+
+
+def get_bot_api_keys() -> list[str]:
+    """Keys for the bot's own background/on-demand requests - a small fixed
+    slice so it never competes with interactive web app use for the pool."""
+    keys = get_api_keys()
+    return keys[-BOT_RESERVED_KEY_COUNT:] if len(keys) > BOT_RESERVED_KEY_COUNT else keys
+
+
 def add_api_key(api_key: str, label: str | None) -> None:
     conn = get_connection()
     try:

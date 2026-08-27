@@ -21,7 +21,10 @@
   // blocks cross-origin requests to hosts it isn't told about.
   const APP_BASE_URL = "http://localhost:8787";
   const TOKEN_KEY = "twm_live_token";
-  const POLL_MS = 30000;
+  // Cheap to poll fast - this only re-reads the app's own cached snapshot,
+  // never touches Torn's API (the bot's own refresh cadence is what actually
+  // bounds how fresh this data can be).
+  const POLL_MS = 2000;
 
   // ---------- Talking to the app ----------
 

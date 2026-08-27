@@ -3,7 +3,7 @@ from pydantic import BaseModel
 
 from backend import armory, db
 from backend.deps import require_client, require_leadership, torn_error_to_http
-from backend.torn_api import TornAPIError
+from backend.torn_api import TornAPIError, TornClient
 
 router = APIRouter(prefix="/api/armory", tags=["armory"], dependencies=[Depends(require_leadership)])
 
@@ -62,14 +62,13 @@ def delete_target(item_id: int):
 
 
 @router.get("/restock")
-def get_restock():
+def get_restock(client: TornClient = Depends(require_client)):
     conn = db.get_connection()
     try:
         targets = armory.get_armory_targets(conn)
     finally:
         conn.close()
 
-    client = require_client()
     try:
         return armory.compute_restock(client, targets)
     except TornAPIError as exc:

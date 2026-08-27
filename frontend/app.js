@@ -1370,7 +1370,10 @@ async function renderLiveWar() {
 
 function startLiveWarPolling() {
   stopLiveWarTimers();
-  state.liveWarTimer = setInterval(renderLiveWar, 30000);
+  // Cheap to poll fast - this only re-reads the app's own cached snapshot,
+  // never touches Torn's API (the bot's own refresh cadence, currently 30s,
+  // is what actually bounds how fresh this data can be).
+  state.liveWarTimer = setInterval(renderLiveWar, 2000);
   state.liveWarTickTimer = setInterval(tickLiveWarCountdowns, 1000);
 }
 

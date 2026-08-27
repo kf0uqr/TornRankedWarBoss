@@ -5,8 +5,8 @@ from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 
 from backend import armory, db, ffscouter, payout, stats, sync
-from backend.deps import require_client, require_faction_id, require_leadership, torn_error_to_http
-from backend.torn_api import TornAPIError
+from backend.deps import client_for_session, require_client, require_faction_id, require_leadership, require_session, torn_error_to_http
+from backend.torn_api import TornAPIError, TornClient
 
 router = APIRouter(prefix="/api/wars", tags=["wars"], dependencies=[Depends(require_leadership)])
 
@@ -31,9 +31,8 @@ class MemberUpdateIn(BaseModel):
 
 
 @router.get("/available")
-def available_wars():
+def available_wars(client: TornClient = Depends(require_client)):
     faction_id = require_faction_id()
-    client = require_client()
     try:
         wars = client.faction_rankedwars(faction_id)
     except TornAPIError as exc:
@@ -64,13 +63,12 @@ def available_wars():
 
 
 @router.get("/current")
-def current_war():
+def current_war(client: TornClient = Depends(require_client)):
     """The faction's currently-active ranked war (if any), plus the enemy
     faction's live roster - status/level/last-action, for a war-room view.
     Unlike the rest of this router, this never touches the local DB: it's
     meant to work before a war is synced (or ever synced) into `wars`."""
     faction_id = require_faction_id()
-    client = require_client()
     try:
         wars = client.faction_rankedwars(faction_id, limit=5)
         current = next((w for w in wars if w["end"] == 0), None)
@@ -160,9 +158,8 @@ def list_wars():
 
 
 @router.post("/{war_id}/sync")
-def sync_war(war_id: int):
+def sync_war(war_id: int, client: TornClient = Depends(require_client), session: dict = Depends(require_session)):
     faction_id = require_faction_id()
-    client = require_client()
     try:
         conn = db.get_connection()
         try:
@@ -173,7 +170,7 @@ def sync_war(war_id: int):
         raise torn_error_to_http(exc)
     finally:
         client.close()
-    return get_war(war_id)
+    return get_war(war_id, session)
 
 
 def _get_war_row(conn, war_id: int):
@@ -184,7 +181,7 @@ def _get_war_row(conn, war_id: int):
 
 
 @router.get("/{war_id}")
-def get_war(war_id: int):
+def get_war(war_id: int, session: dict = Depends(require_session)):
     conn = db.get_connection()
     try:
         war = _get_war_row(conn, war_id)
@@ -197,7 +194,7 @@ def get_war(war_id: int):
         armory_line = {"id": None, "label": "Armory Restock", "amount": 0.0}
         armory_error = None
         try:
-            client = require_client()
+            client = client_for_session(session)
             try:
                 targets = armory.get_armory_targets(conn)
                 restock = armory.compute_restock(client, targets)
@@ -295,7 +292,7 @@ def get_war_stats(war_id: int):
 
 
 @router.patch("/{war_id}")
-def update_war_settings(war_id: int, body: WarSettingsIn):
+def update_war_settings(war_id: int, body: WarSettingsIn, session: dict = Depends(require_session)):
     conn = db.get_connection()
     try:
         _get_war_row(conn, war_id)
@@ -319,11 +316,11 @@ def update_war_settings(war_id: int, body: WarSettingsIn):
             conn.commit()
     finally:
         conn.close()
-    return get_war(war_id)
+    return get_war(war_id, session)
 
 
 @router.post("/{war_id}/expenses")
-def add_expense_line(war_id: int, body: ExpenseLineIn):
+def add_expense_line(war_id: int, body: ExpenseLineIn, session: dict = Depends(require_session)):
     conn = db.get_connection()
     try:
         _get_war_row(conn, war_id)
@@ -334,11 +331,11 @@ def add_expense_line(war_id: int, body: ExpenseLineIn):
         conn.commit()
     finally:
         conn.close()
-    return get_war(war_id)
+    return get_war(war_id, session)
 
 
 @router.patch("/{war_id}/expenses/{line_id}")
-def update_expense_line(war_id: int, line_id: int, body: ExpenseLineIn):
+def update_expense_line(war_id: int, line_id: int, body: ExpenseLineIn, session: dict = Depends(require_session)):
     conn = db.get_connection()
     try:
         conn.execute(
@@ -348,22 +345,22 @@ def update_expense_line(war_id: int, line_id: int, body: ExpenseLineIn):
         conn.commit()
     finally:
         conn.close()
-    return get_war(war_id)
+    return get_war(war_id, session)
 
 
 @router.delete("/{war_id}/expenses/{line_id}")
-def delete_expense_line(war_id: int, line_id: int):
+def delete_expense_line(war_id: int, line_id: int, session: dict = Depends(require_session)):
     conn = db.get_connection()
     try:
         conn.execute("DELETE FROM expense_lines WHERE id = ? AND war_id = ?", (line_id, war_id))
         conn.commit()
     finally:
         conn.close()
-    return get_war(war_id)
+    return get_war(war_id, session)
 
 
 @router.patch("/{war_id}/members/{member_id}")
-def update_member(war_id: int, member_id: int, body: MemberUpdateIn):
+def update_member(war_id: int, member_id: int, body: MemberUpdateIn, session: dict = Depends(require_session)):
     conn = db.get_connection()
     try:
         fields, values = [], []
@@ -384,4 +381,4 @@ def update_member(war_id: int, member_id: int, body: MemberUpdateIn):
             conn.commit()
     finally:
         conn.close()
-    return get_war(war_id)
+    return get_war(war_id, session)

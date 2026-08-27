@@ -32,9 +32,8 @@ def _exact_bars_and_stats_by_member() -> dict[int, dict]:
 
 
 @router.get("")
-def get_dashboard():
+def get_dashboard(client: TornClient = Depends(require_client)):
     faction_id = require_faction_id()
-    client = require_client()
     try:
         members = client.faction_members(faction_id)
     except TornAPIError as exc:

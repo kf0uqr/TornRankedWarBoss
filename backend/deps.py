@@ -38,11 +38,22 @@ def require_leadership(session: dict = Depends(require_session)) -> dict:
     return session
 
 
-def require_client() -> TornClient:
-    api_keys = db.get_api_keys()
+def client_for_session(session: dict) -> TornClient:
+    """Picks the bot's small reserved key slice or the rest of the pool
+    depending on who's making the request - see db.get_bot_api_keys()/
+    get_web_api_keys() for why. Takes session explicitly (rather than pulling
+    it from shared/implicit state) since FastAPI may run sync dependencies
+    and route handlers on different worker threads within one request -
+    contextvars set in one don't reliably propagate to the other."""
+    is_bot = session.get("player_name") == "bot"
+    api_keys = db.get_bot_api_keys() if is_bot else db.get_web_api_keys()
     if not api_keys:
         raise HTTPException(status_code=400, detail="No Torn API key configured. Set one in Settings first.")
     return TornClient(api_keys)
+
+
+def require_client(session: dict = Depends(require_session)) -> TornClient:
+    return client_for_session(session)
 
 
 def require_faction_id() -> int:

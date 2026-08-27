@@ -35,13 +35,16 @@ from bot import travel  # noqa: E402
 from bot.render import render_tables  # noqa: E402
 
 APP_BASE_URL = "http://localhost:8787"
-WAR_STATUS_REFRESH_MINUTES = 1
+# Safe at 30s now that require_client() reserves a small key slice
+# exclusively for the bot (db.BOT_RESERVED_KEY_COUNT) - this loop can't
+# starve interactive web app use no matter how tight this gets.
+WAR_STATUS_REFRESH_SECONDS = 30
 GIVEAWAY_CHECK_SECONDS = 15
 DASHBOARD_REFRESH_MINUTES = 1
 SNAPSHOT_CHECK_HOURS = 1
 # The activity heatmap's own displayed board updates far less often than the
 # enemy/own boards - but the online/offline observation it's built from still
-# gets logged every WAR_STATUS_REFRESH_MINUTES cycle regardless, since more
+# gets logged every WAR_STATUS_REFRESH_SECONDS cycle regardless, since more
 # frequent sampling is what actually makes the per-hour percentages accurate;
 # only the Discord message edit itself is throttled.
 ACTIVITY_BOARD_REFRESH_MINUTES = 15
@@ -304,7 +307,7 @@ def _add_decay_fields(embed: discord.Embed, war: dict) -> None:
     embed.add_field(name="Max Payout", value=payout_text)
 
 
-def _auto_update_description(loop: tasks.Loop, interval_minutes: float) -> str:
+def _auto_update_description(loop: tasks.Loop, interval_seconds: float) -> str:
     # Embed footers don't render Discord's timestamp markup (plain text only),
     # so the live "auto-updates in" countdown has to live in the description
     # instead - next_iteration is None only in the brief window before the
@@ -312,7 +315,9 @@ def _auto_update_description(loop: tasks.Loop, interval_minutes: float) -> str:
     next_run = loop.next_iteration
     if next_run:
         return f"Auto-updates <t:{int(next_run.timestamp())}:R>"
-    return f"Auto-updates every {interval_minutes:g} min"
+    if interval_seconds >= 60 and interval_seconds % 60 == 0:
+        return f"Auto-updates every {interval_seconds / 60:g} min"
+    return f"Auto-updates every {interval_seconds:g} sec"
 
 
 def build_enemy_status_message(data: dict, travel_overrides: dict | None = None) -> tuple[discord.Embed, discord.File]:
@@ -320,7 +325,7 @@ def build_enemy_status_message(data: dict, travel_overrides: dict | None = None)
     members = sorted(data["members"], key=fmt.war_status_sort_key)
 
     embed = discord.Embed(title=f"Current War - vs {war['opponent_name']}", color=0x5DA9FF)
-    embed.description = _auto_update_description(refresh_war_status, WAR_STATUS_REFRESH_MINUTES)
+    embed.description = _auto_update_description(refresh_war_status, WAR_STATUS_REFRESH_SECONDS)
     embed.add_field(name="Score", value=f"{war['own_score']} - {war['opponent_score']} (target {war['target']})")
     okay_count = sum(1 for m in members if m["status"]["state"] == "Okay")
     embed.add_field(name="Attackable Now", value=f"{okay_count} / {len(members)}")
@@ -376,7 +381,7 @@ def build_enemy_status_message(data: dict, travel_overrides: dict | None = None)
 def build_own_status_message(data: dict) -> tuple[discord.Embed, discord.File]:
     war = data["war"]
     embed = discord.Embed(title="Our Roster", color=0x5DA9FF)
-    embed.description = _auto_update_description(refresh_war_status, WAR_STATUS_REFRESH_MINUTES)
+    embed.description = _auto_update_description(refresh_war_status, WAR_STATUS_REFRESH_SECONDS)
     embed.add_field(name="Score", value=f"{war['own_score']} - {war['opponent_score']} (target {war['target']})")
     embed.set_footer(text="Hits/respect are computed live from the attack log - treat them as an estimate.")
 
@@ -392,7 +397,7 @@ def build_activity_heatmap_message(data: dict, activity_estimates: dict) -> tupl
 
     embed = discord.Embed(title=f"Activity Heatmap - vs {war['opponent_name']}", color=0x5DA9FF)
     # This board's own displayed refresh is throttled to ACTIVITY_BOARD_REFRESH_MINUTES
-    # (see _refresh_war_status_once), separate from the WAR_STATUS_REFRESH_MINUTES
+    # (see _refresh_war_status_once), separate from the WAR_STATUS_REFRESH_SECONDS
     # cadence the underlying online/offline observations are still logged at.
     next_update_at = (
         _last_activity_board_update + ACTIVITY_BOARD_REFRESH_MINUTES * 60 if _last_activity_board_update else None
@@ -403,7 +408,7 @@ def build_activity_heatmap_message(data: dict, activity_estimates: dict) -> tupl
         else f"Auto-updates every {ACTIVITY_BOARD_REFRESH_MINUTES:g} min"
     )
     embed.set_footer(
-        text=f"Percent of observed {WAR_STATUS_REFRESH_MINUTES:g}-min polls each member was Online, by UTC hour - "
+        text=f"Percent of observed {WAR_STATUS_REFRESH_SECONDS:g}-sec polls each member was Online, by UTC hour - "
         f"needs {activity.MIN_OBSERVED_SAMPLES}+ polls at that hour to show, so this fills in the longer the bot runs."
     )
 
@@ -420,7 +425,7 @@ def build_dashboard_message(data: dict) -> tuple[discord.Embed, discord.File]:
     with_key = sum(1 for m in members if "battle_stats_exact" in m)
 
     embed = discord.Embed(title="📊 Faction Dashboard", color=0x5DA9FF)
-    embed.description = _auto_update_description(refresh_dashboard, DASHBOARD_REFRESH_MINUTES)
+    embed.description = _auto_update_description(refresh_dashboard, DASHBOARD_REFRESH_MINUTES * 60)
     embed.add_field(name="Members", value=str(len(members)))
     embed.add_field(name="Exact Stats Available", value=f"{with_key} / {len(members)}")
     embed.set_footer(
@@ -714,7 +719,7 @@ async def current_war_start(interaction: discord.Interaction):
         },
     )
     await interaction.followup.send(
-        f"Posted - I'll refresh all three every {WAR_STATUS_REFRESH_MINUTES} minutes while this war is active.",
+        f"Posted - I'll refresh all three every {WAR_STATUS_REFRESH_SECONDS} seconds while this war is active.",
         ephemeral=True,
     )
 
@@ -1141,7 +1146,7 @@ async def before_check_giveaways():
     await bot.wait_until_ready()
 
 
-@tasks.loop(minutes=WAR_STATUS_REFRESH_MINUTES)
+@tasks.loop(seconds=WAR_STATUS_REFRESH_SECONDS)
 async def refresh_war_status():
     # An unhandled exception here would stop this loop for good (discord.py
     # doesn't reschedule a tasks.loop after it raises) - a transient failure

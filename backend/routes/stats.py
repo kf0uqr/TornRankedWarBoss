@@ -2,15 +2,14 @@ from fastapi import APIRouter, Depends
 
 from backend import db, stats
 from backend.deps import require_client, require_faction_id, require_leadership, torn_error_to_http
-from backend.torn_api import TornAPIError
+from backend.torn_api import TornAPIError, TornClient
 
 router = APIRouter(prefix="/api/stats", tags=["stats"], dependencies=[Depends(require_leadership)])
 
 
 @router.get("/career")
-def get_career_stats():
+def get_career_stats(client: TornClient = Depends(require_client)):
     faction_id = require_faction_id()
-    client = require_client()
     try:
         current_members = client.faction_members(faction_id)
     except TornAPIError as exc:
