@@ -6,7 +6,7 @@ from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
 
 from backend import db
-from backend.routes import activity, armory, giveaways, settings, stats, travel, wars
+from backend.routes import activity, armory, dashboard, giveaways, settings, stat_snapshots, stats, travel, wars
 from backend.torn_api import TornRateLimitError
 
 FRONTEND_DIR = Path(__file__).resolve().parent / "frontend"
@@ -21,6 +21,8 @@ app.include_router(stats.router)
 app.include_router(travel.router)
 app.include_router(activity.router)
 app.include_router(giveaways.router)
+app.include_router(dashboard.router)
+app.include_router(stat_snapshots.router)
 
 
 @app.exception_handler(TornRateLimitError)

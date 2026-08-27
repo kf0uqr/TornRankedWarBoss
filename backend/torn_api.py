@@ -215,6 +215,14 @@ class TornClient:
     def user_profile(self, user_id: int) -> dict:
         return self.get(f"/user/{user_id}", {"selections": "profile"})["profile"]
 
+    def user_bars_battlestats_profile(self) -> dict:
+        """bars/battlestats are only ever the calling key's own account, no
+        matter whose ID you pass (Torn won't return another player's) - so
+        this is meant to be called on a single-key TornClient([key]) built
+        from a specific member's own contributed key, one member at a time.
+        Returns {"bars": {...}, "battlestats": {...}, "profile": {...}}."""
+        return self.get("/user", {"selections": "bars,battlestats,profile"})
+
     # --- Torn endpoints ---
 
     def torn_items(self, category: str | None = None) -> list[dict]:

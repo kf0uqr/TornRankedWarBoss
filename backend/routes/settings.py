@@ -48,6 +48,11 @@ class DiscordAlertChannelIdIn(BaseModel):
     channel_id: str
 
 
+class DiscordDashboardIn(BaseModel):
+    channel_id: str
+    message_id: str
+
+
 class DiscordWarStatusIn(BaseModel):
     war_id: int
     channel_id: str
@@ -266,6 +271,28 @@ def clear_discord_war_status():
     db.set_setting("discord_war_status_own_message_id", "")
     db.set_setting("discord_war_status_activity_message_id", "")
     return get_discord_war_status()
+
+
+@router.get("/discord-dashboard")
+def get_discord_dashboard():
+    return {
+        "channel_id": db.get_setting("discord_dashboard_channel_id"),
+        "message_id": db.get_setting("discord_dashboard_message_id"),
+    }
+
+
+@router.post("/discord-dashboard")
+def set_discord_dashboard(body: DiscordDashboardIn):
+    db.set_setting("discord_dashboard_channel_id", body.channel_id)
+    db.set_setting("discord_dashboard_message_id", body.message_id)
+    return get_discord_dashboard()
+
+
+@router.delete("/discord-dashboard")
+def clear_discord_dashboard():
+    db.set_setting("discord_dashboard_channel_id", "")
+    db.set_setting("discord_dashboard_message_id", "")
+    return get_discord_dashboard()
 
 
 @router.get("/rank-pay-rates")

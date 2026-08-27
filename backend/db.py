@@ -166,6 +166,17 @@ CREATE TABLE IF NOT EXISTS giveaway_winners (
     discord_user_id TEXT NOT NULL,
     PRIMARY KEY (giveaway_id, discord_user_id)
 );
+
+CREATE TABLE IF NOT EXISTS stat_snapshots (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    member_id INTEGER NOT NULL,
+    member_name TEXT,
+    battle_stats_total INTEGER NOT NULL,
+    snapshot_date TEXT NOT NULL,
+    recorded_at INTEGER NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_stat_snapshots_member_date ON stat_snapshots(member_id, snapshot_date);
 """
 
 
@@ -682,5 +693,79 @@ def cancel_giveaway(giveaway_id: int) -> None:
     try:
         conn.execute("UPDATE giveaways SET status = 'cancelled' WHERE id = ?", (giveaway_id,))
         conn.commit()
+    finally:
+        conn.close()
+
+
+def has_stat_snapshot_today(snapshot_date: str) -> bool:
+    conn = get_connection()
+    try:
+        row = conn.execute(
+            "SELECT 1 FROM stat_snapshots WHERE snapshot_date = ? LIMIT 1", (snapshot_date,)
+        ).fetchone()
+        return row is not None
+    finally:
+        conn.close()
+
+
+def add_stat_snapshots(snapshot_date: str, entries: list[dict]) -> None:
+    """entries: [{"member_id", "member_name", "battle_stats_total"}, ...]"""
+    if not entries:
+        return
+    conn = get_connection()
+    try:
+        now = int(time.time())
+        conn.executemany(
+            """
+            INSERT INTO stat_snapshots (member_id, member_name, battle_stats_total, snapshot_date, recorded_at)
+            VALUES (?, ?, ?, ?, ?)
+            """,
+            [(e["member_id"], e["member_name"], e["battle_stats_total"], snapshot_date, now) for e in entries],
+        )
+        conn.commit()
+    finally:
+        conn.close()
+
+
+def get_latest_stat_snapshots() -> list[dict]:
+    """Most recent snapshot per member, regardless of when - the "now" side
+    of a gains comparison, even if today's capture hasn't run yet."""
+    conn = get_connection()
+    try:
+        rows = conn.execute(
+            """
+            SELECT s.member_id, s.member_name, s.battle_stats_total, s.recorded_at
+            FROM stat_snapshots s
+            INNER JOIN (
+                SELECT member_id, MAX(recorded_at) AS max_recorded_at
+                FROM stat_snapshots
+                GROUP BY member_id
+            ) latest ON s.member_id = latest.member_id AND s.recorded_at = latest.max_recorded_at
+            """
+        ).fetchall()
+        return [dict(r) for r in rows]
+    finally:
+        conn.close()
+
+
+def get_earliest_stat_snapshots_since(since_ts: int) -> list[dict]:
+    """Earliest snapshot per member at-or-after since_ts - the "baseline"
+    side of a gains comparison."""
+    conn = get_connection()
+    try:
+        rows = conn.execute(
+            """
+            SELECT s.member_id, s.member_name, s.battle_stats_total, s.recorded_at
+            FROM stat_snapshots s
+            INNER JOIN (
+                SELECT member_id, MIN(recorded_at) AS min_recorded_at
+                FROM stat_snapshots
+                WHERE recorded_at >= ?
+                GROUP BY member_id
+            ) earliest ON s.member_id = earliest.member_id AND s.recorded_at = earliest.min_recorded_at
+            """,
+            (since_ts,),
+        ).fetchall()
+        return [dict(r) for r in rows]
     finally:
         conn.close()

@@ -37,6 +37,8 @@ from bot.render import render_tables  # noqa: E402
 APP_BASE_URL = "http://localhost:8787"
 WAR_STATUS_REFRESH_MINUTES = 1
 GIVEAWAY_CHECK_SECONDS = 15
+DASHBOARD_REFRESH_MINUTES = 1
+SNAPSHOT_CHECK_HOURS = 1
 
 _score_history = decay.ScoreHistory()
 _travel_tracker = travel.TravelTracker()
@@ -287,15 +289,15 @@ def _add_decay_fields(embed: discord.Embed, war: dict) -> None:
     embed.add_field(name="Max Payout", value=payout_text)
 
 
-def _auto_update_description() -> str:
+def _auto_update_description(loop: tasks.Loop, interval_minutes: float) -> str:
     # Embed footers don't render Discord's timestamp markup (plain text only),
     # so the live "auto-updates in" countdown has to live in the description
     # instead - next_iteration is None only in the brief window before the
-    # refresh loop's first tick, hence the static fallback.
-    next_run = refresh_war_status.next_iteration
+    # given loop's first tick, hence the static fallback.
+    next_run = loop.next_iteration
     if next_run:
         return f"Auto-updates <t:{int(next_run.timestamp())}:R>"
-    return f"Auto-updates every {WAR_STATUS_REFRESH_MINUTES} min while this war is active"
+    return f"Auto-updates every {interval_minutes:g} min"
 
 
 def build_enemy_status_message(data: dict, travel_overrides: dict | None = None) -> tuple[discord.Embed, discord.File]:
@@ -303,7 +305,7 @@ def build_enemy_status_message(data: dict, travel_overrides: dict | None = None)
     members = sorted(data["members"], key=fmt.war_status_sort_key)
 
     embed = discord.Embed(title=f"Current War - vs {war['opponent_name']}", color=0x5DA9FF)
-    embed.description = _auto_update_description()
+    embed.description = _auto_update_description(refresh_war_status, WAR_STATUS_REFRESH_MINUTES)
     embed.add_field(name="Score", value=f"{war['own_score']} - {war['opponent_score']} (target {war['target']})")
     okay_count = sum(1 for m in members if m["status"]["state"] == "Okay")
     embed.add_field(name="Attackable Now", value=f"{okay_count} / {len(members)}")
@@ -359,7 +361,7 @@ def build_enemy_status_message(data: dict, travel_overrides: dict | None = None)
 def build_own_status_message(data: dict) -> tuple[discord.Embed, discord.File]:
     war = data["war"]
     embed = discord.Embed(title="Our Roster", color=0x5DA9FF)
-    embed.description = _auto_update_description()
+    embed.description = _auto_update_description(refresh_war_status, WAR_STATUS_REFRESH_MINUTES)
     embed.add_field(name="Score", value=f"{war['own_score']} - {war['opponent_score']} (target {war['target']})")
     embed.set_footer(text="Hits/respect are computed live from the attack log - treat them as an estimate.")
 
@@ -374,7 +376,7 @@ def build_activity_heatmap_message(data: dict, activity_estimates: dict) -> tupl
     members = sorted(data["members"], key=lambda m: m["name"].lower())
 
     embed = discord.Embed(title=f"Activity Heatmap - vs {war['opponent_name']}", color=0x5DA9FF)
-    embed.description = _auto_update_description()
+    embed.description = _auto_update_description(refresh_war_status, WAR_STATUS_REFRESH_MINUTES)
     embed.set_footer(
         text=f"Percent of observed 5-min polls each member was Online, by UTC hour - needs "
         f"{activity.MIN_OBSERVED_SAMPLES}+ polls at that hour to show, so this fills in the longer the bot runs."
@@ -386,6 +388,24 @@ def build_activity_heatmap_message(data: dict, activity_estimates: dict) -> tupl
         [{"heading": None, "headers": fmt.ACTIVITY_HEATMAP_HEADERS, "rows": rows}],
     )
     return embed, image_file(png, "activity_heatmap.png")
+
+
+def build_dashboard_message(data: dict) -> tuple[discord.Embed, discord.File]:
+    members = sorted(data["members"], key=fmt.dashboard_sort_key)
+    with_key = sum(1 for m in members if "battle_stats_exact" in m)
+
+    embed = discord.Embed(title="📊 Faction Dashboard", color=0x5DA9FF)
+    embed.description = _auto_update_description(refresh_dashboard, DASHBOARD_REFRESH_MINUTES)
+    embed.add_field(name="Members", value=str(len(members)))
+    embed.add_field(name="Exact Stats Available", value=f"{with_key} / {len(members)}")
+    embed.set_footer(
+        text="Green = exact (from a contributed API key), white = FFScouter estimate. "
+        "Energy/Health only show for members who've run /add_api_key."
+    )
+
+    rows = [fmt.dashboard_row(m) for m in members]
+    png = render_tables("Faction Dashboard", [{"heading": None, "headers": fmt.DASHBOARD_HEADERS, "rows": rows}])
+    return embed, image_file(png, "dashboard.png")
 
 
 def build_giveaway_embed(giveaway: dict, entry_count: int) -> discord.Embed:
@@ -512,6 +532,10 @@ async def on_ready():
         refresh_war_status.start()
     if not check_giveaways.is_running():
         check_giveaways.start()
+    if not refresh_dashboard.is_running():
+        refresh_dashboard.start()
+    if not capture_daily_snapshot.is_running():
+        capture_daily_snapshot.start()
 
     try:
         active_giveaways = await api_get("/api/giveaways/active")
@@ -846,6 +870,114 @@ async def del_giveaway_command(interaction: discord.Interaction, giveaway: int):
             pass
 
     await interaction.followup.send("Giveaway cancelled.", ephemeral=True)
+
+
+@bot.tree.command(name="dashboard", description="Post a live-updating roster of every faction member - stats, energy, health")
+async def dashboard_command(interaction: discord.Interaction):
+    if not await ensure_leadership(interaction):
+        return
+    if interaction.channel is None:
+        await interaction.response.send_message("This command needs to be run in a channel.", ephemeral=True)
+        return
+
+    await interaction.response.defer(ephemeral=True)
+    try:
+        data = await api_get("/api/dashboard")
+    except Exception as e:
+        await interaction.followup.send(f"Couldn't reach the app: {e}", ephemeral=True)
+        return
+
+    embed, file = build_dashboard_message(data)
+    message = await interaction.channel.send(embed=embed, file=file)
+    await api_post("/api/settings/discord-dashboard", {"channel_id": str(message.channel.id), "message_id": str(message.id)})
+    await interaction.followup.send(f"Dashboard posted - refreshes every {DASHBOARD_REFRESH_MINUTES:g} min.", ephemeral=True)
+
+
+@bot.tree.command(name="gains", description="Battle-stat gains over a time period, for members who've added their own API key")
+@app_commands.describe(period="How far back to compare against, e.g. 7d, 24h, 30d")
+async def gains_command(interaction: discord.Interaction, period: str):
+    if not await ensure_leadership(interaction):
+        return
+
+    seconds = giveaways.parse_duration(period)
+    if seconds is None:
+        await interaction.response.send_message(
+            f"Couldn't parse `{period}` as a duration - try something like `7d`, `24h`, or `30d`.",
+            ephemeral=True,
+        )
+        return
+
+    await interaction.response.defer()
+    since_ts = int(time.time()) - seconds
+    try:
+        gains = await api_get(f"/api/stat-snapshots/gains?since={since_ts}")
+    except Exception as e:
+        await interaction.followup.send(f"Couldn't reach the app: {e}")
+        return
+    if not gains:
+        await interaction.followup.send(
+            "No snapshot data for that period yet - snapshots are only captured for members who've added their "
+            "own API key via /add_api_key, once a day, so it may take a day or two to have anything to compare."
+        )
+        return
+
+    gains.sort(key=fmt.gains_sort_key)
+    embed = discord.Embed(title=f"Battle Stat Gains - last {period}", color=0x5DA9FF)
+    embed.set_footer(text="Only covers members with their own API key in the pool - see /add_api_key.")
+    rows = [fmt.gains_row(g) for g in gains]
+    png = render_tables(embed.title, [{"heading": None, "headers": fmt.GAINS_HEADERS, "rows": rows}])
+    await interaction.followup.send(embed=embed, file=image_file(png, "gains.png"))
+
+
+@tasks.loop(minutes=DASHBOARD_REFRESH_MINUTES)
+async def refresh_dashboard():
+    try:
+        await _refresh_dashboard_once()
+    except Exception as e:
+        print(f"refresh_dashboard: unhandled error this cycle, will retry next cycle: {e}")
+
+
+async def _refresh_dashboard_once():
+    ref = await api_get("/api/settings/discord-dashboard")
+    if not ref.get("message_id"):
+        return
+
+    channel_id = int(ref["channel_id"])
+    try:
+        channel = bot.get_channel(channel_id) or await bot.fetch_channel(channel_id)
+        message = await channel.fetch_message(int(ref["message_id"]))
+    except (discord.NotFound, discord.Forbidden):
+        await api_delete("/api/settings/discord-dashboard")
+        return
+
+    try:
+        data = await api_get("/api/dashboard")
+    except Exception as e:
+        print(f"dashboard refresh: couldn't reach the app: {e}")
+        return
+
+    embed, file = build_dashboard_message(data)
+    await message.edit(embed=embed, attachments=[file])
+
+
+@refresh_dashboard.before_loop
+async def before_refresh_dashboard():
+    await bot.wait_until_ready()
+
+
+@tasks.loop(hours=SNAPSHOT_CHECK_HOURS)
+async def capture_daily_snapshot():
+    try:
+        result = await api_post("/api/stat-snapshots/capture", {})
+        if result.get("captured"):
+            print(f"Captured daily stat snapshot for {result.get('count')} member(s).")
+    except Exception as e:
+        print(f"Failed to capture daily stat snapshot: {e}")
+
+
+@capture_daily_snapshot.before_loop
+async def before_capture_daily_snapshot():
+    await bot.wait_until_ready()
 
 
 @tasks.loop(seconds=GIVEAWAY_CHECK_SECONDS)

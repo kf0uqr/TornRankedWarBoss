@@ -262,3 +262,76 @@ def activity_heatmap_row(member_id: int, name: str, estimates: dict) -> list:
             color = COLORS["text_dim"]
         row.append({"text": f"{pct:.0f}%", "color": color})
     return row
+
+
+# Torn only ever returns bars/battlestats for the account whose own key made
+# the request, never an arbitrary target - so "exact" here only covers
+# members who've contributed their own key via /add_api_key or Settings.
+# Everyone else falls back to the same FFScouter estimate used for the enemy
+# roster (or "-" if neither is available).
+DASHBOARD_HEADERS = ["Name", "Level", "Status", "Last Action", "Position", "Battle Stats", "Energy", "Health"]
+
+
+def _format_stat_total(n: float) -> str:
+    sign = "-" if n < 0 else ""
+    n = abs(n)
+    for suffix, div in (("t", 1e12), ("b", 1e9), ("m", 1e6), ("k", 1e3)):
+        if n >= div:
+            return f"{sign}{n / div:.2f}{suffix}"
+    return f"{sign}{n:.0f}"
+
+
+def _bar_cell(bar: dict | None) -> str:
+    if not bar:
+        return "-"
+    return f"{bar['current']:,}/{bar['maximum']:,}"
+
+
+def dashboard_row(m) -> list:
+    status = m["status"]
+    status_text = abbreviate_status(status["description"] or status["state"])
+
+    if "battle_stats_exact" in m:
+        stats_cell = {"text": _format_stat_total(m["battle_stats_exact"]), "color": COLORS["good"]}
+    elif m.get("bs_estimate_human"):
+        stats_cell = m["bs_estimate_human"]
+    else:
+        stats_cell = "-"
+
+    return [
+        m["name"],
+        str(m["level"]),
+        {"text": status_text, "color": STATUS_COLOR_MAP.get(status.get("color"), COLORS["text"])},
+        abbreviate_relative(m["last_action"]["relative"]),
+        m.get("position") or "-",
+        stats_cell,
+        _bar_cell(m.get("energy")),
+        _bar_cell(m.get("life")),
+    ]
+
+
+def dashboard_sort_key(m):
+    return m["name"].lower()
+
+
+# Only covers members with a key in the pool (exact stats are required to
+# measure a real gain - FFScouter's estimate is too noisy day-to-day to
+# track trends against). A gain of 0 usually just means only one snapshot
+# has been taken in the requested window so far, not that they've stalled.
+GAINS_HEADERS = ["Name", "Then", "Now", "Gain"]
+
+
+def gains_row(g) -> list:
+    gain = g["gain"]
+    color = COLORS["good"] if gain > 0 else COLORS["bad"] if gain < 0 else COLORS["text_dim"]
+    gain_text = f"+{_format_stat_total(gain)}" if gain > 0 else _format_stat_total(gain)
+    return [
+        g["member_name"] or f"#{g['member_id']}",
+        _format_stat_total(g["baseline_total"]),
+        _format_stat_total(g["latest_total"]),
+        {"text": gain_text, "color": color},
+    ]
+
+
+def gains_sort_key(g):
+    return -g["gain"]
