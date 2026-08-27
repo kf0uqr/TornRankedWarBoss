@@ -39,10 +39,17 @@ WAR_STATUS_REFRESH_MINUTES = 1
 GIVEAWAY_CHECK_SECONDS = 15
 DASHBOARD_REFRESH_MINUTES = 1
 SNAPSHOT_CHECK_HOURS = 1
+# The activity heatmap's own displayed board updates far less often than the
+# enemy/own boards - but the online/offline observation it's built from still
+# gets logged every WAR_STATUS_REFRESH_MINUTES cycle regardless, since more
+# frequent sampling is what actually makes the per-hour percentages accurate;
+# only the Discord message edit itself is throttled.
+ACTIVITY_BOARD_REFRESH_MINUTES = 15
 
 _score_history = decay.ScoreHistory()
 _travel_tracker = travel.TravelTracker()
 _self_hosp_tracker = self_hosp.SelfHospAlertTracker()
+_last_activity_board_update: float | None = None
 _revives_tracker = revives.RevivesReminderTracker()
 
 
@@ -376,10 +383,20 @@ def build_activity_heatmap_message(data: dict, activity_estimates: dict) -> tupl
     members = sorted(data["members"], key=lambda m: m["name"].lower())
 
     embed = discord.Embed(title=f"Activity Heatmap - vs {war['opponent_name']}", color=0x5DA9FF)
-    embed.description = _auto_update_description(refresh_war_status, WAR_STATUS_REFRESH_MINUTES)
+    # This board's own displayed refresh is throttled to ACTIVITY_BOARD_REFRESH_MINUTES
+    # (see _refresh_war_status_once), separate from the WAR_STATUS_REFRESH_MINUTES
+    # cadence the underlying online/offline observations are still logged at.
+    next_update_at = (
+        _last_activity_board_update + ACTIVITY_BOARD_REFRESH_MINUTES * 60 if _last_activity_board_update else None
+    )
+    embed.description = (
+        f"Auto-updates <t:{int(next_update_at)}:R>"
+        if next_update_at
+        else f"Auto-updates every {ACTIVITY_BOARD_REFRESH_MINUTES:g} min"
+    )
     embed.set_footer(
-        text=f"Percent of observed 5-min polls each member was Online, by UTC hour - needs "
-        f"{activity.MIN_OBSERVED_SAMPLES}+ polls at that hour to show, so this fills in the longer the bot runs."
+        text=f"Percent of observed {WAR_STATUS_REFRESH_MINUTES:g}-min polls each member was Online, by UTC hour - "
+        f"needs {activity.MIN_OBSERVED_SAMPLES}+ polls at that hour to show, so this fills in the longer the bot runs."
     )
 
     rows = [fmt.activity_heatmap_row(m["id"], m["name"], activity_estimates) for m in members]
@@ -660,6 +677,8 @@ async def current_war_start(interaction: discord.Interaction):
 
     # Separate posts, not one combined image - each renders as large as
     # Discord will show it, instead of being squeezed into a shared image.
+    global _last_activity_board_update
+    _last_activity_board_update = time.time()
     enemy_embed, enemy_file = build_enemy_status_message(data, travel_overrides)
     own_embed, own_file = build_own_status_message(data)
     activity_embed, activity_file = build_activity_heatmap_message(data, activity_estimates)
@@ -1169,14 +1188,25 @@ async def _refresh_war_status_once():
         return
 
     travel_overrides = await sync_travel_observations(war["id"], data["members"])
+    # Always logged every cycle regardless of the display gate below - more
+    # frequent sampling is what makes the per-hour percentages meaningful,
+    # independent of how often the board itself gets redrawn in Discord.
     activity_estimates = await sync_activity_observations(data["members"])
 
     enemy_embed, enemy_file = build_enemy_status_message(data, travel_overrides)
     await enemy_message.edit(embed=enemy_embed, attachments=[enemy_file])
     own_embed, own_file = build_own_status_message(data)
     await own_message.edit(embed=own_embed, attachments=[own_file])
-    activity_embed, activity_file = build_activity_heatmap_message(data, activity_estimates)
-    await activity_message.edit(embed=activity_embed, attachments=[activity_file])
+
+    global _last_activity_board_update
+    now = time.time()
+    activity_due = (
+        _last_activity_board_update is None or (now - _last_activity_board_update) >= ACTIVITY_BOARD_REFRESH_MINUTES * 60
+    )
+    if activity_due:
+        activity_embed, activity_file = build_activity_heatmap_message(data, activity_estimates)
+        await activity_message.edit(embed=activity_embed, attachments=[activity_file])
+        _last_activity_board_update = now
 
 
 @refresh_war_status.before_loop
