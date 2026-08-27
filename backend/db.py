@@ -1,3 +1,4 @@
+import secrets
 import sqlite3
 import time
 from pathlib import Path
@@ -14,6 +15,13 @@ DEFAULT_RANK_PAY_RATES = [
     ("Petty Launderer", 85.0),
     ("Audit Bait", 70.0),
 ]
+
+# Ranks trusted with full leadership access (existing pages/API) when they
+# log in - everyone else only gets the read-only Live War page. Mirrors the
+# same ranks already treated as the trusted 100%-tier for pay purposes.
+DEFAULT_LEADERSHIP_RANKS = {"Leader", "Co-Leader", "Chief Evasion Officer", "Ledger Keeper"}
+
+SESSION_LIFETIME_SECONDS = 30 * 24 * 60 * 60
 
 # (item_id, item_name, armory_category, torn_item_category, default_target_qty)
 DEFAULT_ARMORY_TARGETS = [
@@ -44,7 +52,18 @@ CREATE TABLE IF NOT EXISTS settings (
 
 CREATE TABLE IF NOT EXISTS rank_pay_rates (
     rank_name TEXT PRIMARY KEY,
-    pay_rate_pct REAL NOT NULL
+    pay_rate_pct REAL NOT NULL,
+    is_leadership INTEGER NOT NULL DEFAULT 0
+);
+
+CREATE TABLE IF NOT EXISTS sessions (
+    token TEXT PRIMARY KEY,
+    torn_player_id INTEGER NOT NULL,
+    player_name TEXT,
+    position TEXT,
+    is_leadership INTEGER NOT NULL DEFAULT 0,
+    created_at INTEGER NOT NULL,
+    expires_at INTEGER NOT NULL
 );
 
 CREATE TABLE IF NOT EXISTS api_keys (
@@ -248,6 +267,15 @@ def _post_migrate(conn, had_legacy_fine: bool):
         if "description" not in giveaway_columns:
             conn.execute("ALTER TABLE giveaways ADD COLUMN description TEXT")
 
+    if _table_exists(conn, "rank_pay_rates"):
+        rank_columns = {row["name"] for row in conn.execute("PRAGMA table_info(rank_pay_rates)")}
+        if "is_leadership" not in rank_columns:
+            conn.execute("ALTER TABLE rank_pay_rates ADD COLUMN is_leadership INTEGER NOT NULL DEFAULT 0")
+            conn.executemany(
+                "UPDATE rank_pay_rates SET is_leadership = 1 WHERE rank_name = ?",
+                [(rank,) for rank in DEFAULT_LEADERSHIP_RANKS],
+            )
+
     if had_legacy_fine:
         conn.execute(
             """
@@ -285,13 +313,13 @@ def init_db():
         existing = conn.execute("SELECT COUNT(*) FROM rank_pay_rates").fetchone()[0]
         if existing == 0:
             conn.executemany(
-                "INSERT INTO rank_pay_rates (rank_name, pay_rate_pct) VALUES (?, ?)",
-                DEFAULT_RANK_PAY_RATES,
+                "INSERT INTO rank_pay_rates (rank_name, pay_rate_pct, is_leadership) VALUES (?, ?, ?)",
+                [(name, rate, 1 if name in DEFAULT_LEADERSHIP_RANKS else 0) for name, rate in DEFAULT_RANK_PAY_RATES],
             )
         else:
             # Added after the initial seed - make sure it exists on dbs created before this.
             conn.execute(
-                "INSERT OR IGNORE INTO rank_pay_rates (rank_name, pay_rate_pct) VALUES ('Kingpin', 110.0)"
+                "INSERT OR IGNORE INTO rank_pay_rates (rank_name, pay_rate_pct, is_leadership) VALUES ('Kingpin', 110.0, 0)"
             )
 
         existing = conn.execute("SELECT COUNT(*) FROM armory_targets").fetchone()[0]
@@ -300,6 +328,12 @@ def init_db():
                 "INSERT INTO armory_targets (item_id, item_name, armory_category, torn_item_category, target_qty) "
                 "VALUES (?, ?, ?, ?, ?)",
                 DEFAULT_ARMORY_TARGETS,
+            )
+
+        if not conn.execute("SELECT value FROM settings WHERE key = 'service_token'").fetchone():
+            conn.execute(
+                "INSERT INTO settings (key, value) VALUES ('service_token', ?)",
+                (secrets.token_hex(32),),
             )
 
         conn.commit()
@@ -767,5 +801,63 @@ def get_earliest_stat_snapshots_since(since_ts: int) -> list[dict]:
             (since_ts,),
         ).fetchall()
         return [dict(r) for r in rows]
+    finally:
+        conn.close()
+
+
+def get_service_token() -> str:
+    return get_setting("service_token")
+
+
+def get_rank_leadership_map() -> dict[str, bool]:
+    """rank_name -> is_leadership, for resolving a player's login-time
+    leadership tier from their live Torn faction position."""
+    conn = get_connection()
+    try:
+        rows = conn.execute("SELECT rank_name, is_leadership FROM rank_pay_rates").fetchall()
+        return {r["rank_name"]: bool(r["is_leadership"]) for r in rows}
+    finally:
+        conn.close()
+
+
+def create_session(token: str, torn_player_id: int, player_name: str | None, position: str | None, is_leadership: bool) -> None:
+    conn = get_connection()
+    try:
+        now = int(time.time())
+        conn.execute(
+            """
+            INSERT INTO sessions (token, torn_player_id, player_name, position, is_leadership, created_at, expires_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?)
+            """,
+            (token, torn_player_id, player_name, position, 1 if is_leadership else 0, now, now + SESSION_LIFETIME_SECONDS),
+        )
+        conn.commit()
+    finally:
+        conn.close()
+
+
+def get_session(token: str) -> dict | None:
+    conn = get_connection()
+    try:
+        row = conn.execute("SELECT * FROM sessions WHERE token = ?", (token,)).fetchone()
+        return dict(row) if row else None
+    finally:
+        conn.close()
+
+
+def delete_session(token: str) -> None:
+    conn = get_connection()
+    try:
+        conn.execute("DELETE FROM sessions WHERE token = ?", (token,))
+        conn.commit()
+    finally:
+        conn.close()
+
+
+def prune_expired_sessions() -> None:
+    conn = get_connection()
+    try:
+        conn.execute("DELETE FROM sessions WHERE expires_at < ?", (int(time.time()),))
+        conn.commit()
     finally:
         conn.close()

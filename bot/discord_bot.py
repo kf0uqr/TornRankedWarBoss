@@ -103,16 +103,24 @@ async def ensure_leadership(interaction: discord.Interaction) -> bool:
     return False
 
 
+def _auth_headers() -> dict:
+    """The app's every route now requires a logged-in session - this is how
+    the bot (a trusted local process, not a player) authenticates its own
+    server-to-server calls, via a shared secret only the app and the bot
+    (same DB file) know."""
+    return {"Authorization": f"Bearer {db.get_service_token()}"}
+
+
 async def api_get(path: str) -> dict:
     async with httpx.AsyncClient(base_url=APP_BASE_URL, timeout=20) as client:
-        resp = await client.get(path)
+        resp = await client.get(path, headers=_auth_headers())
         resp.raise_for_status()
         return resp.json()
 
 
 async def api_post(path: str, json: dict) -> dict:
     async with httpx.AsyncClient(base_url=APP_BASE_URL, timeout=20) as client:
-        resp = await client.post(path, json=json)
+        resp = await client.post(path, json=json, headers=_auth_headers())
         if resp.status_code >= 400:
             # Surface FastAPI's {"detail": "..."} instead of a generic status
             # code - the caller (e.g. /add_api_key) has an actual message to
@@ -127,7 +135,7 @@ async def api_post(path: str, json: dict) -> dict:
 
 async def api_delete(path: str) -> dict:
     async with httpx.AsyncClient(base_url=APP_BASE_URL, timeout=20) as client:
-        resp = await client.delete(path)
+        resp = await client.delete(path, headers=_auth_headers())
         resp.raise_for_status()
         return resp.json()
 
@@ -637,6 +645,7 @@ async def _stop_war_status_boards(note: str) -> bool:
         pass
 
     await api_delete("/api/settings/discord-war-status")
+    await api_delete("/api/live/war-snapshot")
     return True
 
 
@@ -1185,6 +1194,7 @@ async def _refresh_war_status_once():
         await own_message.edit(content=ended_note)
         await activity_message.edit(content=ended_note)
         await api_delete("/api/settings/discord-war-status")
+        await api_delete("/api/live/war-snapshot")
         return
 
     travel_overrides = await sync_travel_observations(war["id"], data["members"])
@@ -1192,6 +1202,41 @@ async def _refresh_war_status_once():
     # frequent sampling is what makes the per-hour percentages meaningful,
     # independent of how often the board itself gets redrawn in Discord.
     activity_estimates = await sync_activity_observations(data["members"])
+
+    # Feeds the web "Live War" page and Tampermonkey overlay - reuses the same
+    # activity_estimates/travel tracker this cycle already computed for the
+    # Discord boards, so this doesn't cost any extra Torn API calls.
+    current_hour = str(int(time.strftime("%H", time.gmtime())))
+    try:
+        await api_post(
+            "/api/live/war-snapshot",
+            {
+                "war_id": war["id"],
+                "members": [
+                    {
+                        "id": m["id"],
+                        "name": m["name"],
+                        "level": m.get("level"),
+                        "position": m.get("position"),
+                        "status": m["status"],
+                        "last_action": m["last_action"],
+                        "is_on_wall": bool(m.get("is_on_wall")),
+                        "is_revivable": bool(m.get("is_revivable")),
+                        "bs_estimate_human": m.get("bs_estimate_human"),
+                        "online_probability_now": (
+                            activity_estimates.get(str(m["id"]), {}).get(current_hour, {}).get("pct")
+                            if activity_estimates.get(str(m["id"]), {}).get(current_hour, {}).get("total_count", 0)
+                            >= activity.MIN_OBSERVED_SAMPLES
+                            else None
+                        ),
+                        "estimated_landing_at": _travel_tracker.estimated_arrival(m["id"], travel_overrides),
+                    }
+                    for m in data["members"]
+                ],
+            },
+        )
+    except Exception as e:
+        print(f"current_war refresh: couldn't publish live snapshot: {e}")
 
     enemy_embed, enemy_file = build_enemy_status_message(data, travel_overrides)
     await enemy_message.edit(embed=enemy_embed, attachments=[enemy_file])

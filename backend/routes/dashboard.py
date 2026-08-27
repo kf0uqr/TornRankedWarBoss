@@ -1,11 +1,11 @@
 import httpx
-from fastapi import APIRouter
+from fastapi import APIRouter, Depends
 
 from backend import db, ffscouter
-from backend.deps import require_client, require_faction_id, torn_error_to_http
+from backend.deps import require_client, require_faction_id, require_leadership, torn_error_to_http
 from backend.torn_api import TornAPIError, TornClient
 
-router = APIRouter(prefix="/api/dashboard", tags=["dashboard"])
+router = APIRouter(prefix="/api/dashboard", tags=["dashboard"], dependencies=[Depends(require_leadership)])
 
 
 def _exact_bars_and_stats_by_member() -> dict[int, dict]:

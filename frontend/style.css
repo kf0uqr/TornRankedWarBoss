@@ -32,6 +32,18 @@ body {
 
 #rate-limit-banner.hidden { display: none; }
 
+#login-screen.hidden, #app-shell.hidden { display: none; }
+
+#login-screen {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 100vh;
+  padding: 24px;
+}
+
+#login-card { width: 100%; max-width: 380px; }
+
 header {
   display: flex;
   align-items: center;

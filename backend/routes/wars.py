@@ -1,14 +1,14 @@
 import time
 
 import httpx
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 
 from backend import armory, db, ffscouter, payout, stats, sync
-from backend.deps import require_client, require_faction_id, torn_error_to_http
+from backend.deps import require_client, require_faction_id, require_leadership, torn_error_to_http
 from backend.torn_api import TornAPIError
 
-router = APIRouter(prefix="/api/wars", tags=["wars"])
+router = APIRouter(prefix="/api/wars", tags=["wars"], dependencies=[Depends(require_leadership)])
 
 
 class WarSettingsIn(BaseModel):

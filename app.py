@@ -6,7 +6,7 @@ from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
 
 from backend import db
-from backend.routes import activity, armory, dashboard, giveaways, settings, stat_snapshots, stats, travel, wars
+from backend.routes import activity, armory, auth, dashboard, giveaways, live, settings, stat_snapshots, stats, travel, wars
 from backend.torn_api import TornRateLimitError
 
 FRONTEND_DIR = Path(__file__).resolve().parent / "frontend"
@@ -14,6 +14,8 @@ FRONTEND_DIR = Path(__file__).resolve().parent / "frontend"
 db.init_db()
 
 app = FastAPI(title="Torn Ranked War Manager")
+app.include_router(auth.router)
+app.include_router(live.router)
 app.include_router(settings.router)
 app.include_router(wars.router)
 app.include_router(armory.router)

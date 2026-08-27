@@ -11,22 +11,40 @@
     Torn API request budget reached - resuming in <span id="rate-limit-countdown">60</span>s
   </div>
 
-  <header>
-    <h1>Torn Ranked War Manager</h1>
-    <nav>
-      <button class="tab-btn" data-tab="wars">Wars</button>
-      <button class="tab-btn" data-tab="armory">Armory</button>
-      <button class="tab-btn" data-tab="stats">Stats</button>
-      <button class="tab-btn" data-tab="settings">Settings</button>
-    </nav>
-  </header>
+  <div id="login-screen" class="hidden">
+    <div class="card" id="login-card">
+      <h2>Log in</h2>
+      <p class="muted">Enter your own Torn API key. Leadership gets full access; everyone else sees the Live War board.</p>
+      <div class="row">
+        <input type="password" id="login-api-key" placeholder="Torn API key" />
+        <button id="login-submit" class="action">Log in</button>
+      </div>
+      <div id="login-error" class="negative"></div>
+    </div>
+  </div>
 
-  <main>
-    <section id="tab-wars" class="tab"></section>
-    <section id="tab-armory" class="tab hidden"></section>
-    <section id="tab-stats" class="tab hidden"></section>
-    <section id="tab-settings" class="tab hidden"></section>
-  </main>
+  <div id="app-shell" class="hidden">
+    <header>
+      <h1>Torn Ranked War Manager</h1>
+      <nav id="main-nav">
+        <button class="tab-btn" data-tab="wars">Wars</button>
+        <button class="tab-btn" data-tab="armory">Armory</button>
+        <button class="tab-btn" data-tab="stats">Stats</button>
+        <button class="tab-btn" data-tab="live">Live War</button>
+        <button class="tab-btn" data-tab="settings">Settings</button>
+        <span class="spacer"></span>
+        <button id="logout-btn" class="danger">Log out</button>
+      </nav>
+    </header>
+
+    <main>
+      <section id="tab-wars" class="tab"></section>
+      <section id="tab-armory" class="tab hidden"></section>
+      <section id="tab-stats" class="tab hidden"></section>
+      <section id="tab-live" class="tab hidden"></section>
+      <section id="tab-settings" class="tab hidden"></section>
+    </main>
+  </div>
 
   <div id="toast"></div>
 

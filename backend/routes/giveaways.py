@@ -1,9 +1,10 @@
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 
 from backend import db
+from backend.deps import require_leadership
 
-router = APIRouter(prefix="/api/giveaways", tags=["giveaways"])
+router = APIRouter(prefix="/api/giveaways", tags=["giveaways"], dependencies=[Depends(require_leadership)])
 
 
 class GiveawayIn(BaseModel):

@@ -1,11 +1,11 @@
-from fastapi import APIRouter
+from fastapi import APIRouter, Depends
 from pydantic import BaseModel
 
 from backend import armory, db
-from backend.deps import require_client, torn_error_to_http
+from backend.deps import require_client, require_leadership, torn_error_to_http
 from backend.torn_api import TornAPIError
 
-router = APIRouter(prefix="/api/armory", tags=["armory"])
+router = APIRouter(prefix="/api/armory", tags=["armory"], dependencies=[Depends(require_leadership)])
 
 
 class TargetUpdateIn(BaseModel):

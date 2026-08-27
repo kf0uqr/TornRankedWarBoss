@@ -1,11 +1,12 @@
 import time
 
-from fastapi import APIRouter
+from fastapi import APIRouter, Depends
 
 from backend import db
+from backend.deps import require_leadership
 from backend.routes.dashboard import _exact_bars_and_stats_by_member
 
-router = APIRouter(prefix="/api/stat-snapshots", tags=["stat-snapshots"])
+router = APIRouter(prefix="/api/stat-snapshots", tags=["stat-snapshots"], dependencies=[Depends(require_leadership)])
 
 
 @router.post("/capture")

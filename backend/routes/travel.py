@@ -1,9 +1,10 @@
-from fastapi import APIRouter
+from fastapi import APIRouter, Depends
 from pydantic import BaseModel
 
 from backend import db
+from backend.deps import require_leadership
 
-router = APIRouter(prefix="/api/travel-observations", tags=["travel"])
+router = APIRouter(prefix="/api/travel-observations", tags=["travel"], dependencies=[Depends(require_leadership)])
 
 
 class TravelObservationIn(BaseModel):

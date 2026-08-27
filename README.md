@@ -11,6 +11,7 @@ A local web app for managing [Torn](https://www.torn.com) faction ranked wars: i
 - **Payroll helper (Tampermonkey)** — Torn's API has no way to actually send money, so a companion userscript (`tampermonkey/torn-war-manager-payroll.user.js`) adds a panel to Torn's own faction "Give to User" page that fills in the player, "Add to balance", and amount for you from the app's paysheet. It never clicks Torn's own submit button — you always confirm the real transfer yourself, then mark it paid in the panel.
 - **Pooled API keys** — Torn caps each key at 100 requests/minute. Add more keys in Settings (e.g. from other faction members) and the app round-robins requests across all of them, multiplying your effective throughput.
 - **Discord bot** — read-only slash commands (`/wars`, `/paysheet`, `/stats`, `/career`, `/armory`, `/current_war`, `/dashboard`, `/gains`) so leadership can check things from Discord without needing access to the machine running the app, plus `/add_api_key` (open to any faction member, not just leadership) to submit their own Torn API key into the app's pool without needing app access at all, and `/new_giveaway` (also open to everyone) to run button-entry giveaways with randomly-chosen winners - `/del_giveaway`, to cancel one early, is leadership-only. `/current_war start` posts live status boards for the active ranked war - enemy roster, your own, and an enemy activity heatmap - and keeps editing them in place every few minutes (`/current_war stop` to end it early). `/dashboard start`/`stop` do the same for a live-updating roster of the *whole* faction (not just war participants) with battle stats, energy, and health. No port forwarding or router changes needed — see below.
+- **Web login + Live War page** — the app itself requires logging in with your own Torn API key (see "Login & access" below). Leadership gets the full app; every other faction member gets a read-only **Live War** page showing the enemy roster with live online-probability and landing-ETA estimates, mirroring `/current_war`'s Discord boards. A companion Tampermonkey overlay (`tampermonkey/torn-war-manager-live-overlay.user.js`) shows the same thing directly on Torn's own faction page.
 
 ## Requirements
 
@@ -38,13 +39,29 @@ or directly:
 .venv/bin/python app.py
 ```
 
-Then open **http://localhost:8787**.
+Then open **http://localhost:8787** and log in with your own Torn API key (see "Login & access" below).
 
 `./start.sh` and `./start-bot.sh` both self-update before launching: they check `origin` for new commits and pull them (fast-forward only - never merges or discards anything), reinstalling dependencies if `requirements.txt` changed, then stop any already-running instance and start fresh so the update actually takes effect. If you have uncommitted local changes, or the branch has diverged from `origin` in a way that isn't a clean fast-forward, it skips the update entirely and just starts with the code as-is - it never touches your working tree beyond a plain `git pull`. Run directly with `.venv/bin/python app.py` (or `bot/discord_bot.py`) to skip this and always run exactly what's on disk.
 
 On first run, go to the **Settings** tab and enter your Torn API key and faction ID. These are stored locally in `torn_war_manager.db` (a SQLite file created next to `app.py`, ignored by git) and are never sent anywhere but `api.torn.com`.
 
 You can add more API keys in Settings to pool their rate limits together - each key needs at least **Limited** access, and should belong to a member of *this* faction (some endpoints Torn scopes to "my faction" rather than an explicit faction ID, so a key from a different faction would return the wrong data).
+
+## Login & access
+
+Every page and API route requires logging in with a Torn API key belonging to a member of this faction - there's no anonymous access, even on `localhost`. On login, the app looks up your live faction position (via Torn's own `/faction/{id}/members`) and checks it against the **is_leadership** flag on each row in Settings → rank pay rates (the same table that already lists every custom faction rank for payout purposes - `Leader`, `Co-Leader`, `Chief Evasion Officer`, and `Ledger Keeper` are leadership by default, matching the ranks already treated as the trusted 100%-pay tier). Leadership gets the full app; everyone else only sees the read-only **Live War** page. Logging in doesn't add your key to the shared API-key pool - that's a separate, deliberate step in Settings or via `/add_api_key`.
+
+Sessions last 30 days and are stored server-side; log out from the nav bar to end one early. The Discord bot authenticates its own calls to the app with a separate, auto-generated service token (`settings.service_token` in the database) - not a player login - so it keeps working without anyone signing in.
+
+## Exposing the app beyond your machine
+
+By default the app only listens on `127.0.0.1`, so it's only reachable from the same machine. To let other faction members reach the **Live War** page (or the Tampermonkey overlay) from their own computers, put it behind a [Cloudflare Tunnel](https://developers.cloudflare.com/cloudflare-one/connections/connect-networks/get-started/) (free, no router or firewall changes, gives you a stable HTTPS URL):
+
+```bash
+cloudflared tunnel --url http://localhost:8787
+```
+
+Share the resulting `https://*.trycloudflare.com` URL (or a named tunnel's custom domain, for something permanent) with faction members instead of `localhost:8787`. Since every route requires login regardless of how it's reached, exposing the app this way doesn't weaken anything that was already gated - it's the same access control, just reachable from more places. If you change the app's host, update `APP_BASE_URL` (and the `@connect` line) in whichever Tampermonkey scripts you use.
 
 ## Moving to another machine
 
@@ -61,6 +78,16 @@ Import the same file on the new machine's Settings page to restore everything in
 5. Once you've actually sent it, click **Paid** in the panel to mark them paid (asks for confirmation first). This is the same flag as the "Paid" checkbox on the app's Paysheet.
 
 The script only talks to `http://localhost:8787` (your own machine) and never touches your Torn API key.
+
+## Live War overlay (optional)
+
+Shows the same enemy-roster data as the web app's **Live War** page - status, online probability, and landing ETA - directly on Torn's faction page, for any faction member (not just leadership).
+
+1. Install [Tampermonkey](https://www.tampermonkey.net/) in your browser.
+2. Open Tampermonkey's dashboard → Create a new script → replace its contents with `tampermonkey/torn-war-manager-live-overlay.user.js` → save.
+3. If the app isn't on `localhost:8787` (e.g. it's behind a Cloudflare Tunnel - see above), edit `APP_BASE_URL` and the matching `@connect` line at the top of the script.
+4. Visit **Torn → Faction**. A floating "Live War" panel appears in the bottom-left; the first time, it asks for your own Torn API key (the same login the web app uses) and remembers it in Tampermonkey's own storage.
+5. The panel refreshes every 30 seconds and only shows data while leadership has `/current_war start` running in Discord - otherwise it says so.
 
 ## Discord bot (optional)
 

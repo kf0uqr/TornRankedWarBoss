@@ -1,4 +1,11 @@
-const state = { warId: null, rateLimitUntil: null, rateLimitTimer: null };
+const state = {
+  warId: null,
+  rateLimitUntil: null,
+  rateLimitTimer: null,
+  session: null,
+  liveWarTimer: null,
+  liveWarTickTimer: null,
+};
 const HITS_PER_XANAX = 10;
 
 function toast(msg, isError = false) {
@@ -47,6 +54,12 @@ async function api(path, opts = {}) {
     startRateLimitCountdown(data.retry_after || 60);
     toast(data.detail || "Torn API rate limit reached", true);
     throw new Error(data.detail || "Rate limited");
+  }
+  if (res.status === 401 && path !== "/api/auth/me") {
+    // Session expired mid-use (or was never valid) - drop back to the login
+    // screen instead of a wall of toasts from every in-flight request.
+    showLogin();
+    throw new Error(data.detail || "Not logged in");
   }
   if (!res.ok) {
     const msg = data.detail || res.statusText;
@@ -314,17 +327,104 @@ async function copyTablesAsImage(title, sections) {
 
 // ---------- Tabs ----------
 
+function stopLiveWarTimers() {
+  if (state.liveWarTimer) {
+    clearInterval(state.liveWarTimer);
+    state.liveWarTimer = null;
+  }
+  if (state.liveWarTickTimer) {
+    clearInterval(state.liveWarTickTimer);
+    state.liveWarTickTimer = null;
+  }
+}
+
 function switchTab(name) {
+  stopLiveWarTimers();
   document.querySelectorAll(".tab-btn").forEach((b) => b.classList.toggle("active", b.dataset.tab === name));
   document.querySelectorAll(".tab").forEach((s) => s.classList.toggle("hidden", s.id !== `tab-${name}`));
   if (name === "wars") renderWars();
   if (name === "armory") renderArmory();
   if (name === "stats") renderCareerStats();
+  if (name === "live") {
+    renderLiveWar();
+    startLiveWarPolling();
+  }
   if (name === "settings") renderSettings();
 }
 
 document.querySelectorAll(".tab-btn").forEach((btn) => {
   btn.addEventListener("click", () => switchTab(btn.dataset.tab));
+});
+
+// ---------- Auth ----------
+
+function showLogin() {
+  stopLiveWarTimers();
+  state.session = null;
+  document.getElementById("app-shell").classList.add("hidden");
+  document.getElementById("login-screen").classList.remove("hidden");
+  document.getElementById("login-error").textContent = "";
+}
+
+function showApp() {
+  document.getElementById("login-screen").classList.add("hidden");
+  document.getElementById("app-shell").classList.remove("hidden");
+
+  const leadershipTabs = ["wars", "armory", "stats", "settings"];
+  document.querySelectorAll(".tab-btn").forEach((btn) => {
+    const restricted = leadershipTabs.includes(btn.dataset.tab);
+    btn.classList.toggle("hidden", restricted && !state.session.is_leadership);
+  });
+
+  switchTab(state.session.is_leadership ? "wars" : "live");
+}
+
+async function checkSession() {
+  try {
+    state.session = await api("/api/auth/me");
+    showApp();
+  } catch (e) {
+    showLogin();
+  }
+}
+
+document.getElementById("login-submit").addEventListener("click", async () => {
+  const input = document.getElementById("login-api-key");
+  const errorEl = document.getElementById("login-error");
+  errorEl.textContent = "";
+  const apiKey = input.value.trim();
+  if (!apiKey) return;
+
+  try {
+    const res = await fetch("/api/auth/login", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ api_key: apiKey }),
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) {
+      errorEl.textContent = data.detail || "Login failed.";
+      return;
+    }
+    input.value = "";
+    state.session = { player_name: data.player_name, position: data.position, is_leadership: data.is_leadership };
+    showApp();
+  } catch (e) {
+    errorEl.textContent = "Couldn't reach the app.";
+  }
+});
+
+document.getElementById("login-api-key").addEventListener("keydown", (e) => {
+  if (e.key === "Enter") document.getElementById("login-submit").click();
+});
+
+document.getElementById("logout-btn").addEventListener("click", async () => {
+  try {
+    await api("/api/auth/logout", { method: "POST" });
+  } catch (e) {
+    // already logged out / session gone - fine, still show the login screen
+  }
+  showLogin();
 });
 
 // ---------- Settings ----------
@@ -1185,6 +1285,95 @@ async function renderCareerStats() {
   renderTable();
 }
 
+// ---------- Live War ----------
+
+function formatEta(unixTs) {
+  if (!unixTs) return "-";
+  const diffMs = unixTs * 1000 - Date.now();
+  if (diffMs <= 0) return "landed";
+  const totalSeconds = Math.floor(diffMs / 1000);
+  const mins = Math.floor(totalSeconds / 60);
+  const secs = totalSeconds % 60;
+  return mins > 0 ? `${mins}m ${secs}s` : `${secs}s`;
+}
+
+function tickLiveWarCountdowns() {
+  document.querySelectorAll("#tab-live [data-eta]").forEach((el) => {
+    const ts = Number(el.dataset.eta);
+    el.textContent = formatEta(ts);
+  });
+}
+
+async function renderLiveWar() {
+  const root = document.getElementById("tab-live");
+  let snapshot;
+  try {
+    snapshot = await api("/api/live/war-snapshot");
+  } catch (e) {
+    return;
+  }
+
+  if (!snapshot.war_id || !snapshot.members.length) {
+    root.innerHTML = `
+      <div class="card">
+        <h2>Live War</h2>
+        <p class="muted">No live war board is currently running - ask leadership to run /current_war start in Discord.</p>
+      </div>
+    `;
+    return;
+  }
+
+  const rows = [...snapshot.members].sort((a, b) => {
+    const aOkay = a.status.state === "Okay" ? 0 : 1;
+    const bOkay = b.status.state === "Okay" ? 0 : 1;
+    if (aOkay !== bOkay) return aOkay - bOkay;
+    return (b.level || 0) - (a.level || 0);
+  });
+
+  root.innerHTML = `
+    <div class="card">
+      <div class="row between">
+        <h2>Live War</h2>
+        <span class="muted">Updated ${snapshot.updated_at ? new Date(snapshot.updated_at * 1000).toLocaleTimeString() : "-"}</span>
+      </div>
+      <table>
+        <thead>
+          <tr>
+            <th>Name</th><th>Level</th><th>Est. Stats</th><th>Status</th><th>Last Action</th>
+            <th>Position</th><th>Wall</th><th>Revivable</th><th>Online %</th><th>Landing ETA</th>
+          </tr>
+        </thead>
+        <tbody>
+          ${rows
+            .map(
+              (m) => `
+            <tr>
+              <td>${m.name}</td>
+              <td>${m.level ?? "-"}</td>
+              <td>${m.bs_estimate_human || "-"}</td>
+              <td class="${m.status.state === "Okay" ? "positive" : "muted"}">${m.status.description || m.status.state}</td>
+              <td>${m.last_action?.relative || "-"}</td>
+              <td>${m.position || "-"}</td>
+              <td>${m.is_on_wall ? "Yes" : "No"}</td>
+              <td>${m.is_revivable ? "Yes" : "No"}</td>
+              <td>${m.online_probability_now != null ? Math.round(m.online_probability_now) + "%" : "-"}</td>
+              <td>${m.estimated_landing_at ? `<span data-eta="${m.estimated_landing_at}">${formatEta(m.estimated_landing_at)}</span>` : "-"}</td>
+            </tr>
+          `
+            )
+            .join("")}
+        </tbody>
+      </table>
+    </div>
+  `;
+}
+
+function startLiveWarPolling() {
+  stopLiveWarTimers();
+  state.liveWarTimer = setInterval(renderLiveWar, 30000);
+  state.liveWarTickTimer = setInterval(tickLiveWarCountdowns, 1000);
+}
+
 // ---------- Init ----------
 
-switchTab("wars");
+checkSession();

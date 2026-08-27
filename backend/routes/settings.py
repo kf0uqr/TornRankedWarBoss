@@ -1,13 +1,14 @@
 import time
 
 import httpx
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 
 from backend import armory, db
+from backend.deps import require_leadership
 from backend.torn_api import TornAPIError, TornClient
 
-router = APIRouter(prefix="/api/settings", tags=["settings"])
+router = APIRouter(prefix="/api/settings", tags=["settings"], dependencies=[Depends(require_leadership)])
 
 
 class SettingsIn(BaseModel):
@@ -17,6 +18,7 @@ class SettingsIn(BaseModel):
 class RankPayRateIn(BaseModel):
     rank_name: str
     pay_rate_pct: float
+    is_leadership: bool = False
 
 
 class ApiKeyIn(BaseModel):
@@ -80,6 +82,7 @@ class ExportedAllowedUser(BaseModel):
 class ExportedRankPayRate(BaseModel):
     rank_name: str
     pay_rate_pct: float
+    is_leadership: bool = False
 
 
 class ExportedArmoryTarget(BaseModel):
@@ -299,7 +302,9 @@ def clear_discord_dashboard():
 def list_rank_pay_rates():
     conn = db.get_connection()
     try:
-        rows = conn.execute("SELECT rank_name, pay_rate_pct FROM rank_pay_rates ORDER BY pay_rate_pct DESC").fetchall()
+        rows = conn.execute(
+            "SELECT rank_name, pay_rate_pct, is_leadership FROM rank_pay_rates ORDER BY pay_rate_pct DESC"
+        ).fetchall()
         return [dict(r) for r in rows]
     finally:
         conn.close()
@@ -310,9 +315,9 @@ def upsert_rank_pay_rate(body: RankPayRateIn):
     conn = db.get_connection()
     try:
         conn.execute(
-            "INSERT INTO rank_pay_rates (rank_name, pay_rate_pct) VALUES (?, ?) "
-            "ON CONFLICT(rank_name) DO UPDATE SET pay_rate_pct = excluded.pay_rate_pct",
-            (body.rank_name, body.pay_rate_pct),
+            "INSERT INTO rank_pay_rates (rank_name, pay_rate_pct, is_leadership) VALUES (?, ?, ?) "
+            "ON CONFLICT(rank_name) DO UPDATE SET pay_rate_pct = excluded.pay_rate_pct, is_leadership = excluded.is_leadership",
+            (body.rank_name, body.pay_rate_pct, 1 if body.is_leadership else 0),
         )
         conn.commit()
     finally:
@@ -383,9 +388,9 @@ def import_settings(body: SettingsExport):
     try:
         for rate in body.rank_pay_rates:
             conn.execute(
-                "INSERT INTO rank_pay_rates (rank_name, pay_rate_pct) VALUES (?, ?) "
-                "ON CONFLICT(rank_name) DO UPDATE SET pay_rate_pct = excluded.pay_rate_pct",
-                (rate.rank_name, rate.pay_rate_pct),
+                "INSERT INTO rank_pay_rates (rank_name, pay_rate_pct, is_leadership) VALUES (?, ?, ?) "
+                "ON CONFLICT(rank_name) DO UPDATE SET pay_rate_pct = excluded.pay_rate_pct, is_leadership = excluded.is_leadership",
+                (rate.rank_name, rate.pay_rate_pct, 1 if rate.is_leadership else 0),
             )
         conn.commit()
     finally:

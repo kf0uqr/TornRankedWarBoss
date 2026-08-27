@@ -1,10 +1,10 @@
-from fastapi import APIRouter
+from fastapi import APIRouter, Depends
 
 from backend import db, stats
-from backend.deps import require_client, require_faction_id, torn_error_to_http
+from backend.deps import require_client, require_faction_id, require_leadership, torn_error_to_http
 from backend.torn_api import TornAPIError
 
-router = APIRouter(prefix="/api/stats", tags=["stats"])
+router = APIRouter(prefix="/api/stats", tags=["stats"], dependencies=[Depends(require_leadership)])
 
 
 @router.get("/career")
