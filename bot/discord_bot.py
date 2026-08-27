@@ -619,11 +619,19 @@ async def current_war_command(interaction: discord.Interaction):
     # Separate posts, not one combined image - each renders as large as
     # Discord will show it, instead of being squeezed into a shared image.
     enemy_embed, enemy_file = build_enemy_status_message(data, travel_overrides)
-    enemy_message = await interaction.channel.send(embed=enemy_embed, file=enemy_file)
     own_embed, own_file = build_own_status_message(data)
-    own_message = await interaction.channel.send(embed=own_embed, file=own_file)
     activity_embed, activity_file = build_activity_heatmap_message(data, activity_estimates)
-    activity_message = await interaction.channel.send(embed=activity_embed, file=activity_file)
+    try:
+        enemy_message = await interaction.channel.send(embed=enemy_embed, file=enemy_file)
+        own_message = await interaction.channel.send(embed=own_embed, file=own_file)
+        activity_message = await interaction.channel.send(embed=activity_embed, file=activity_file)
+    except discord.Forbidden:
+        await interaction.followup.send(
+            "I don't have permission to post in this channel - check my role has Send Messages, "
+            "Embed Links, and Attach Files here.",
+            ephemeral=True,
+        )
+        return
 
     await api_post(
         "/api/settings/discord-war-status",
@@ -816,7 +824,19 @@ async def new_giveaway_command(
     # lifetime, and the ending task needs to be able to fetch and edit it later.
     view = GiveawayView(giveaway["id"])
     bot.add_view(view)
-    message = await interaction.channel.send(embed=build_giveaway_embed(giveaway, 0), view=view)
+    try:
+        message = await interaction.channel.send(embed=build_giveaway_embed(giveaway, 0), view=view)
+    except discord.Forbidden:
+        # Clean up the DB row we already created rather than leaving an
+        # orphaned "active" giveaway with no message that can never be entered
+        # or finalized properly.
+        await api_post(f"/api/giveaways/{giveaway['id']}/cancel", {})
+        await interaction.followup.send(
+            "I don't have permission to post in this channel - check my role has Send Messages, "
+            "Embed Links, and Attach Files here. The giveaway wasn't started.",
+            ephemeral=True,
+        )
+        return
     await api_post(f"/api/giveaways/{giveaway['id']}/message", {"message_id": str(message.id)})
 
     await interaction.followup.send(f"Giveaway started - ends <t:{ends_at}:R>.", ephemeral=True)
@@ -888,7 +908,15 @@ async def dashboard_command(interaction: discord.Interaction):
         return
 
     embed, file = build_dashboard_message(data)
-    message = await interaction.channel.send(embed=embed, file=file)
+    try:
+        message = await interaction.channel.send(embed=embed, file=file)
+    except discord.Forbidden:
+        await interaction.followup.send(
+            "I don't have permission to post in this channel - check my role has Send Messages, "
+            "Embed Links, and Attach Files here.",
+            ephemeral=True,
+        )
+        return
     await api_post("/api/settings/discord-dashboard", {"channel_id": str(message.channel.id), "message_id": str(message.id)})
     await interaction.followup.send(f"Dashboard posted - refreshes every {DASHBOARD_REFRESH_MINUTES:g} min.", ephemeral=True)
 
