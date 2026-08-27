@@ -1348,7 +1348,7 @@ async function renderLiveWar() {
             .map(
               (m) => `
             <tr>
-              <td><a href="https://www.torn.com/loader2.php?sid=getInAttack&user2ID=${m.id}" target="_blank" rel="noopener">${m.name}</a></td>
+              <td><a href="https://www.torn.com/page.php?sid=attack&user2ID=${m.id}" target="_blank" rel="noopener">${m.name}</a></td>
               <td>${m.level ?? "-"}</td>
               <td>${m.bs_estimate_human || "-"}</td>
               <td class="${m.status.state === "Okay" ? "positive" : "muted"}">${m.status.description || m.status.state}</td>
