@@ -1,0 +1,15 @@
+[Unit]
+Description=Torn Ranked War Boss - Discord bot
+After=network.target torn-war-app.service
+Wants=torn-war-app.service
+
+[Service]
+Type=simple
+User=__USER__
+WorkingDirectory=__INSTALL_DIR__
+ExecStart=__INSTALL_DIR__/start-bot.sh
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

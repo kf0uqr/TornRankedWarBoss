@@ -83,7 +83,25 @@ ingress:
   - service: http_status:404
 ```
 
-Run it with `./start-tunnel.sh` (same restart-if-already-running pattern as `start.sh`/`start-bot.sh`), or `cloudflared service install` (needs `sudo`) to run it as a system service that survives reboots.
+Run it with `./start-tunnel.sh` (same restart-if-already-running pattern as `start.sh`/`start-bot.sh`) to test it, or see "Running as systemd services" below to have it (and the app and bot) start on boot and restart automatically.
+
+## Running as systemd services
+
+For an always-on install (a Raspberry Pi, a home server, etc.) rather than something you start by hand each time, `systemd/install.sh` generates and installs `systemd` units for the app, the bot, and the tunnel (if `~/.cloudflared/config.yml` already exists - set that up first per the section above, or just skip the tunnel and run everything on localhost).
+
+```bash
+./systemd/install.sh
+```
+
+It auto-detects the install path and the user running it - no editing required. Run it as your normal user (it calls `sudo` itself only where needed to write the unit files and enable them). Each service just execs the matching `start*.sh` script, so the self-update-on-launch behavior described above still applies on every boot/restart, and `Restart=on-failure` means a crash gets automatically restarted rather than silently staying down.
+
+```bash
+systemctl status torn-war-app torn-war-bot torn-war-tunnel   # check they're running
+journalctl -u torn-war-app -u torn-war-bot -f                # tail logs live
+sudo systemctl restart torn-war-app                          # restart one after a manual git pull
+```
+
+To remove a service later: `sudo systemctl disable --now <name>` then delete `/etc/systemd/system/<name>.service` and run `sudo systemctl daemon-reload`.
 
 Share the resulting `https://*.trycloudflare.com` URL (or a named tunnel's custom domain, for something permanent) with faction members instead of `localhost:8787`. Since every route requires login regardless of how it's reached, exposing the app this way doesn't weaken anything that was already gated - it's the same access control, just reachable from more places. If you change the app's host, update `APP_BASE_URL` (and the `@connect` line) in whichever Tampermonkey scripts you use.
 
