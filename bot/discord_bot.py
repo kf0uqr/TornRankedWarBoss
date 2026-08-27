@@ -850,6 +850,9 @@ async def del_giveaway_command(interaction: discord.Interaction, giveaway: int):
 
 @tasks.loop(seconds=GIVEAWAY_CHECK_SECONDS)
 async def check_giveaways():
+    # An unhandled exception here would stop this loop for good (discord.py
+    # doesn't reschedule a tasks.loop after it raises) - so every giveaway
+    # gets its own try/except, and this can never crash the loop itself.
     try:
         active = await api_get("/api/giveaways/active")
     except Exception as e:
@@ -857,8 +860,11 @@ async def check_giveaways():
         return
     now = time.time()
     for g in active:
-        if g["ends_at"] <= now:
-            await _finalize_giveaway(g)
+        try:
+            if g["ends_at"] <= now:
+                await _finalize_giveaway(g)
+        except Exception as e:
+            print(f"Failed to finalize giveaway {g.get('id')}: {e}")
 
 
 @check_giveaways.before_loop
@@ -868,6 +874,19 @@ async def before_check_giveaways():
 
 @tasks.loop(minutes=WAR_STATUS_REFRESH_MINUTES)
 async def refresh_war_status():
+    # An unhandled exception here would stop this loop for good (discord.py
+    # doesn't reschedule a tasks.loop after it raises) - a transient failure
+    # like a Discord-side 503 or a rate limit that exhausts its retries
+    # should only cost this one cycle, not silently end all board updates
+    # (and the self-hosp/revives alerts riding on the same poll) for the
+    # rest of the process's life.
+    try:
+        await _refresh_war_status_once()
+    except Exception as e:
+        print(f"refresh_war_status: unhandled error this cycle, will retry next cycle: {e}")
+
+
+async def _refresh_war_status_once():
     try:
         data = await api_get("/api/wars/current")
     except Exception as e:
