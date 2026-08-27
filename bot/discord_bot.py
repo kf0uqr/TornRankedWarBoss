@@ -815,10 +815,7 @@ async def _giveaway_autocomplete(interaction: discord.Interaction, current: str)
 @app_commands.describe(giveaway="Which giveaway to cancel")
 @app_commands.autocomplete(giveaway=_giveaway_autocomplete)
 async def del_giveaway_command(interaction: discord.Interaction, giveaway: int):
-    # Base tier, not leadership - but only the giveaway's own creator or
-    # leadership can actually cancel it (checked below), so being on the
-    # allowed list alone isn't enough to cancel someone else's giveaway.
-    if not await ensure_allowed(interaction):
+    if not await ensure_leadership(interaction):
         return
 
     try:
@@ -828,11 +825,6 @@ async def del_giveaway_command(interaction: discord.Interaction, giveaway: int):
         return
     if g["status"] != "active":
         await interaction.response.send_message("That giveaway isn't running anymore.", ephemeral=True)
-        return
-
-    is_creator = g.get("created_by") == str(interaction.user.id)
-    if not (is_creator or is_leadership(interaction.user.id)):
-        await interaction.response.send_message("Only the giveaway's creator or leadership can cancel it.", ephemeral=True)
         return
 
     await interaction.response.defer(ephemeral=True)
