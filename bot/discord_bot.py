@@ -596,8 +596,50 @@ async def wars_command(interaction: discord.Interaction):
     await interaction.followup.send(table_block(rows, header=f"{'War ID':<10} Opponent"))
 
 
-@bot.tree.command(name="current_war", description="Post live-updating status boards for the current ranked war")
-async def current_war_command(interaction: discord.Interaction):
+current_war_group = app_commands.Group(name="current_war", description="Live-updating status boards for the current ranked war")
+
+
+async def _stop_war_status_boards(note: str) -> bool:
+    """Marks the war boards as no longer updating and clears the persisted
+    ref, so refresh_war_status stops touching them. Returns False if there
+    was nothing running to stop."""
+    ref = await api_get("/api/settings/discord-war-status")
+    if not ref.get("enemy_message_id") or not ref.get("own_message_id") or not ref.get("activity_message_id"):
+        return False
+
+    try:
+        channel_id = int(ref["channel_id"])
+        channel = bot.get_channel(channel_id) or await bot.fetch_channel(channel_id)
+        for key in ("enemy_message_id", "own_message_id", "activity_message_id"):
+            try:
+                message = await channel.fetch_message(int(ref[key]))
+                await message.edit(content=note)
+            except (discord.NotFound, discord.Forbidden):
+                pass
+    except (discord.NotFound, discord.Forbidden):
+        pass
+
+    await api_delete("/api/settings/discord-war-status")
+    return True
+
+
+@current_war_group.command(name="stop", description="Stop the currently running war status boards")
+async def current_war_stop(interaction: discord.Interaction):
+    if not await ensure_leadership(interaction):
+        return
+    await interaction.response.defer(ephemeral=True)
+    try:
+        stopped = await _stop_war_status_boards("*Stopped - no longer being updated.*")
+    except Exception as e:
+        await interaction.followup.send(f"Couldn't reach the app: {e}", ephemeral=True)
+        return
+    await interaction.followup.send(
+        "Stopped." if stopped else "No war status boards are currently running.", ephemeral=True
+    )
+
+
+@current_war_group.command(name="start", description="Post live-updating status boards for the current ranked war")
+async def current_war_start(interaction: discord.Interaction):
     if not await ensure_leadership(interaction):
         return
     if interaction.channel is None:
@@ -647,6 +689,9 @@ async def current_war_command(interaction: discord.Interaction):
         f"Posted - I'll refresh all three every {WAR_STATUS_REFRESH_MINUTES} minutes while this war is active.",
         ephemeral=True,
     )
+
+
+bot.tree.add_command(current_war_group)
 
 
 @bot.tree.command(name="paysheet", description="Show the paysheet for a war (defaults to most recent)")
@@ -892,8 +937,41 @@ async def del_giveaway_command(interaction: discord.Interaction, giveaway: int):
     await interaction.followup.send("Giveaway cancelled.", ephemeral=True)
 
 
-@bot.tree.command(name="dashboard", description="Post a live-updating roster of every faction member - stats, energy, health")
-async def dashboard_command(interaction: discord.Interaction):
+dashboard_group = app_commands.Group(name="dashboard", description="Live-updating roster of every faction member")
+
+
+async def _stop_dashboard(note: str) -> bool:
+    ref = await api_get("/api/settings/discord-dashboard")
+    if not ref.get("message_id"):
+        return False
+
+    try:
+        channel_id = int(ref["channel_id"])
+        channel = bot.get_channel(channel_id) or await bot.fetch_channel(channel_id)
+        message = await channel.fetch_message(int(ref["message_id"]))
+        await message.edit(content=note)
+    except (discord.NotFound, discord.Forbidden):
+        pass
+
+    await api_delete("/api/settings/discord-dashboard")
+    return True
+
+
+@dashboard_group.command(name="stop", description="Stop the currently running dashboard")
+async def dashboard_stop(interaction: discord.Interaction):
+    if not await ensure_leadership(interaction):
+        return
+    await interaction.response.defer(ephemeral=True)
+    try:
+        stopped = await _stop_dashboard("*Stopped - no longer being updated.*")
+    except Exception as e:
+        await interaction.followup.send(f"Couldn't reach the app: {e}", ephemeral=True)
+        return
+    await interaction.followup.send("Stopped." if stopped else "No dashboard is currently running.", ephemeral=True)
+
+
+@dashboard_group.command(name="start", description="Post a live-updating roster of every faction member - stats, energy, health")
+async def dashboard_start(interaction: discord.Interaction):
     if not await ensure_leadership(interaction):
         return
     if interaction.channel is None:
@@ -919,6 +997,9 @@ async def dashboard_command(interaction: discord.Interaction):
         return
     await api_post("/api/settings/discord-dashboard", {"channel_id": str(message.channel.id), "message_id": str(message.id)})
     await interaction.followup.send(f"Dashboard posted - refreshes every {DASHBOARD_REFRESH_MINUTES:g} min.", ephemeral=True)
+
+
+bot.tree.add_command(dashboard_group)
 
 
 @bot.tree.command(name="gains", description="Battle-stat gains over a time period, for members who've added their own API key")
