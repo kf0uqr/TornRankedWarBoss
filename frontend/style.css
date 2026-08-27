@@ -102,6 +102,9 @@ table {
   font-size: 14px;
 }
 
+table a { color: var(--accent); text-decoration: none; }
+table a:hover { text-decoration: underline; }
+
 th, td {
   padding: 6px 10px;
   border-bottom: 1px solid var(--border);
