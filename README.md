@@ -55,11 +55,35 @@ Sessions last 30 days and are stored server-side; log out from the nav bar to en
 
 ## Exposing the app beyond your machine
 
-By default the app only listens on `127.0.0.1`, so it's only reachable from the same machine. To let other faction members reach the **Live War** page (or the Tampermonkey overlay) from their own computers, put it behind a [Cloudflare Tunnel](https://developers.cloudflare.com/cloudflare-one/connections/connect-networks/get-started/) (free, no router or firewall changes, gives you a stable HTTPS URL):
+By default the app only listens on `127.0.0.1`, so it's only reachable from the same machine. To let other faction members reach the **Live War** page (or the Tampermonkey overlay) from their own computers, put it behind a [Cloudflare Tunnel](https://developers.cloudflare.com/cloudflare-one/connections/connect-networks/get-started/) (free, no router or firewall changes, gives you a stable HTTPS URL).
+
+For a quick, throwaway URL that changes every time you restart it (no Cloudflare account needed):
 
 ```bash
 cloudflared tunnel --url http://localhost:8787
 ```
+
+For a permanent URL on your own domain (requires a Cloudflare account with the domain already added):
+
+```bash
+cloudflared tunnel login                          # one-time, opens a browser to authorize
+cloudflared tunnel create torn-war-boss
+cloudflared tunnel route dns torn-war-boss war.yourdomain.com
+```
+
+Then write `~/.cloudflared/config.yml`:
+
+```yaml
+tunnel: <tunnel-id-from-the-create-command>
+credentials-file: /home/<you>/.cloudflared/<tunnel-id>.json
+
+ingress:
+  - hostname: war.yourdomain.com
+    service: http://localhost:8787
+  - service: http_status:404
+```
+
+Run it with `./start-tunnel.sh` (same restart-if-already-running pattern as `start.sh`/`start-bot.sh`), or `cloudflared service install` (needs `sudo`) to run it as a system service that survives reboots.
 
 Share the resulting `https://*.trycloudflare.com` URL (or a named tunnel's custom domain, for something permanent) with faction members instead of `localhost:8787`. Since every route requires login regardless of how it's reached, exposing the app this way doesn't weaken anything that was already gated - it's the same access control, just reachable from more places. If you change the app's host, update `APP_BASE_URL` (and the `@connect` line) in whichever Tampermonkey scripts you use.
 
