@@ -39,7 +39,20 @@ async def rate_limit_handler(request: Request, exc: TornRateLimitError):
     )
 
 
-app.mount("/", StaticFiles(directory=FRONTEND_DIR, html=True), name="frontend")
+class NoCacheStaticFiles(StaticFiles):
+    """Cloudflare's edge otherwise caches app.js/style.css for hours by
+    default (there's no cache-busting in their filenames), so a deploy can
+    silently not take effect for anyone hitting the tunnel until that TTL
+    expires. Explicit no-store here is respected by Cloudflare's standard
+    cache level and overrides that default."""
+
+    async def get_response(self, path, scope):
+        response = await super().get_response(path, scope)
+        response.headers["Cache-Control"] = "no-store"
+        return response
+
+
+app.mount("/", NoCacheStaticFiles(directory=FRONTEND_DIR, html=True), name="frontend")
 
 
 if __name__ == "__main__":
