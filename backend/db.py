@@ -139,6 +139,31 @@ CREATE TABLE IF NOT EXISTS activity_observations (
 );
 
 CREATE INDEX IF NOT EXISTS idx_activity_member_hour ON activity_observations(member_id, hour_of_day);
+
+CREATE TABLE IF NOT EXISTS giveaways (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    channel_id TEXT NOT NULL,
+    message_id TEXT,
+    item TEXT NOT NULL,
+    num_winners INTEGER NOT NULL,
+    ends_at INTEGER NOT NULL,
+    created_by TEXT,
+    created_at INTEGER NOT NULL,
+    status TEXT NOT NULL DEFAULT 'active'
+);
+
+CREATE TABLE IF NOT EXISTS giveaway_entries (
+    giveaway_id INTEGER NOT NULL,
+    discord_user_id TEXT NOT NULL,
+    entered_at INTEGER NOT NULL,
+    PRIMARY KEY (giveaway_id, discord_user_id)
+);
+
+CREATE TABLE IF NOT EXISTS giveaway_winners (
+    giveaway_id INTEGER NOT NULL,
+    discord_user_id TEXT NOT NULL,
+    PRIMARY KEY (giveaway_id, discord_user_id)
+);
 """
 
 
@@ -539,3 +564,94 @@ def get_activity_estimates() -> dict[str, dict[str, dict]]:
             "pct": pct,
         }
     return estimates
+
+
+def create_giveaway(channel_id: str, item: str, num_winners: int, ends_at: int, created_by: str | None) -> int:
+    conn = get_connection()
+    try:
+        cur = conn.execute(
+            """
+            INSERT INTO giveaways (channel_id, item, num_winners, ends_at, created_by, created_at, status)
+            VALUES (?, ?, ?, ?, ?, ?, 'active')
+            """,
+            (channel_id, item, num_winners, ends_at, created_by, int(time.time())),
+        )
+        conn.commit()
+        return cur.lastrowid
+    finally:
+        conn.close()
+
+
+def set_giveaway_message_id(giveaway_id: int, message_id: str) -> None:
+    conn = get_connection()
+    try:
+        conn.execute("UPDATE giveaways SET message_id = ? WHERE id = ?", (message_id, giveaway_id))
+        conn.commit()
+    finally:
+        conn.close()
+
+
+def get_giveaway(giveaway_id: int) -> dict | None:
+    conn = get_connection()
+    try:
+        row = conn.execute("SELECT * FROM giveaways WHERE id = ?", (giveaway_id,)).fetchone()
+        return dict(row) if row else None
+    finally:
+        conn.close()
+
+
+def list_active_giveaways() -> list[dict]:
+    conn = get_connection()
+    try:
+        rows = conn.execute("SELECT * FROM giveaways WHERE status = 'active'").fetchall()
+        return [dict(r) for r in rows]
+    finally:
+        conn.close()
+
+
+def add_giveaway_entry(giveaway_id: int, discord_user_id: str) -> bool:
+    """Returns True if this was a new entry, False if they'd already entered."""
+    conn = get_connection()
+    try:
+        cur = conn.execute(
+            "INSERT OR IGNORE INTO giveaway_entries (giveaway_id, discord_user_id, entered_at) VALUES (?, ?, ?)",
+            (giveaway_id, discord_user_id, int(time.time())),
+        )
+        conn.commit()
+        return cur.rowcount > 0
+    finally:
+        conn.close()
+
+
+def count_giveaway_entries(giveaway_id: int) -> int:
+    conn = get_connection()
+    try:
+        return conn.execute(
+            "SELECT COUNT(*) FROM giveaway_entries WHERE giveaway_id = ?", (giveaway_id,)
+        ).fetchone()[0]
+    finally:
+        conn.close()
+
+
+def list_giveaway_entries(giveaway_id: int) -> list[str]:
+    conn = get_connection()
+    try:
+        rows = conn.execute(
+            "SELECT discord_user_id FROM giveaway_entries WHERE giveaway_id = ?", (giveaway_id,)
+        ).fetchall()
+        return [r["discord_user_id"] for r in rows]
+    finally:
+        conn.close()
+
+
+def finalize_giveaway(giveaway_id: int, winner_discord_user_ids: list[str]) -> None:
+    conn = get_connection()
+    try:
+        conn.execute("UPDATE giveaways SET status = 'ended' WHERE id = ?", (giveaway_id,))
+        conn.executemany(
+            "INSERT OR IGNORE INTO giveaway_winners (giveaway_id, discord_user_id) VALUES (?, ?)",
+            [(giveaway_id, uid) for uid in winner_discord_user_ids],
+        )
+        conn.commit()
+    finally:
+        conn.close()

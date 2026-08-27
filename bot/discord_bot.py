@@ -13,6 +13,7 @@ directly (see start-bot.sh).
 """
 
 import io
+import random
 import sys
 import time
 from pathlib import Path
@@ -27,6 +28,7 @@ from backend import db  # noqa: E402
 from bot import activity  # noqa: E402
 from bot import decay  # noqa: E402
 from bot import format as fmt  # noqa: E402
+from bot import giveaways  # noqa: E402
 from bot import revives  # noqa: E402
 from bot import self_hosp  # noqa: E402
 from bot import travel  # noqa: E402
@@ -34,6 +36,7 @@ from bot.render import render_tables  # noqa: E402
 
 APP_BASE_URL = "http://localhost:8787"
 WAR_STATUS_REFRESH_MINUTES = 1
+GIVEAWAY_CHECK_SECONDS = 15
 
 _score_history = decay.ScoreHistory()
 _travel_tracker = travel.TravelTracker()
@@ -385,6 +388,93 @@ def build_activity_heatmap_message(data: dict, activity_estimates: dict) -> tupl
     return embed, image_file(png, "activity_heatmap.png")
 
 
+def build_giveaway_embed(giveaway: dict, entry_count: int) -> discord.Embed:
+    embed = discord.Embed(title="🎉 Giveaway!", description=f"**{giveaway['item']}**", color=0x5DA9FF)
+    embed.add_field(name="Winners", value=str(giveaway["num_winners"]))
+    embed.add_field(name="Entries", value=str(entry_count))
+    embed.add_field(name="Ends", value=f"<t:{giveaway['ends_at']}:R>", inline=False)
+    embed.set_footer(text="Click below to enter - one entry per person.")
+    return embed
+
+
+class GiveawayView(discord.ui.View):
+    """timeout=None + a fixed custom_id makes this a persistent view - the
+    button keeps working across bot restarts as long as on_ready
+    re-registers one of these per still-active giveaway (see below)."""
+
+    def __init__(self, giveaway_id: int):
+        super().__init__(timeout=None)
+        self.giveaway_id = giveaway_id
+        button = discord.ui.Button(
+            label="🎉 Enter", style=discord.ButtonStyle.primary, custom_id=f"giveaway_enter:{giveaway_id}"
+        )
+        button.callback = self._on_enter
+        self.add_item(button)
+
+    async def _on_enter(self, interaction: discord.Interaction) -> None:
+        try:
+            result = await api_post(f"/api/giveaways/{self.giveaway_id}/enter", {"discord_user_id": str(interaction.user.id)})
+        except Exception as e:
+            await interaction.response.send_message(f"Couldn't enter: {e}", ephemeral=True)
+            return
+
+        if not result["entered"]:
+            await interaction.response.send_message("You've already entered this giveaway.", ephemeral=True)
+            return
+        await interaction.response.send_message("You're entered! Good luck.", ephemeral=True)
+
+        try:
+            giveaway = await api_get(f"/api/giveaways/{self.giveaway_id}")
+        except Exception:
+            return
+        if giveaway["status"] != "active" or interaction.message is None:
+            return
+        try:
+            await interaction.message.edit(embed=build_giveaway_embed(giveaway, result["entry_count"]), view=self)
+        except discord.HTTPException:
+            pass
+
+
+async def _finalize_giveaway(giveaway: dict) -> None:
+    giveaway_id = giveaway["id"]
+    try:
+        entrants = await api_get(f"/api/giveaways/{giveaway_id}/entries")
+    except Exception as e:
+        print(f"Failed to fetch entries for giveaway {giveaway_id}: {e}")
+        return
+
+    num_winners = min(giveaway["num_winners"], len(entrants))
+    winners = random.sample(entrants, num_winners) if num_winners else []
+
+    try:
+        await api_post(f"/api/giveaways/{giveaway_id}/finalize", {"winner_discord_user_ids": winners})
+    except Exception as e:
+        print(f"Failed to finalize giveaway {giveaway_id}: {e}")
+        return
+
+    try:
+        channel = bot.get_channel(int(giveaway["channel_id"])) or await bot.fetch_channel(int(giveaway["channel_id"]))
+    except (discord.NotFound, discord.Forbidden) as e:
+        print(f"Couldn't reach channel for giveaway {giveaway_id}: {e}")
+        return
+
+    if giveaway.get("message_id"):
+        try:
+            message = await channel.fetch_message(int(giveaway["message_id"]))
+            ended_embed = build_giveaway_embed(giveaway, len(entrants))
+            ended_embed.title = "🎉 Giveaway Ended"
+            ended_embed.color = 0x888888
+            await message.edit(embed=ended_embed, view=None)
+        except (discord.NotFound, discord.Forbidden):
+            pass
+
+    if winners:
+        mentions = " ".join(f"<@{uid}>" for uid in winners)
+        await channel.send(f"🎉 Congratulations {mentions} - you won **{giveaway['item']}**!")
+    else:
+        await channel.send(f"🎉 The giveaway for **{giveaway['item']}** ended, but no one entered.")
+
+
 @bot.event
 async def on_ready():
     # Guild-scoped commands ONLY work inside that one server - Discord never
@@ -417,6 +507,17 @@ async def on_ready():
     print(f"Logged in as {bot.user} - commands synced {synced_where}")
     if not refresh_war_status.is_running():
         refresh_war_status.start()
+    if not check_giveaways.is_running():
+        check_giveaways.start()
+
+    try:
+        active_giveaways = await api_get("/api/giveaways/active")
+        for g in active_giveaways:
+            bot.add_view(GiveawayView(g["id"]))
+        if active_giveaways:
+            print(f"Re-registered {len(active_giveaways)} active giveaway button(s).")
+    except Exception as e:
+        print(f"Failed to re-register active giveaway views: {e}")
 
 
 @bot.tree.command(name="add_api_key", description="Add your Torn API key to the app's key pool (DM me this - never use it in a server channel)")
@@ -621,6 +722,81 @@ async def armory_command(interaction: discord.Interaction):
     rows = [fmt.armory_row(l) for l in needed] + [fmt.armory_totals_row(needed)]
     png = render_tables(embed.title, [{"heading": None, "headers": fmt.ARMORY_HEADERS, "rows": rows}])
     await interaction.followup.send(embed=embed, file=image_file(png, "armory.png"))
+
+
+@bot.tree.command(name="new_giveaway", description="Start a giveaway - anyone can enter with a button, winner(s) chosen at random when it ends")
+@app_commands.describe(
+    duration="How long it runs, e.g. 1h30m, 2d, 45s",
+    winners="Number of winners",
+    item="What's being given away",
+)
+async def new_giveaway_command(interaction: discord.Interaction, duration: str, winners: int, item: str):
+    # Base tier, not leadership - open to everyone on the allowed list.
+    if not await ensure_allowed(interaction):
+        return
+    if interaction.channel is None:
+        await interaction.response.send_message("This command needs to be run in a channel.", ephemeral=True)
+        return
+
+    seconds = giveaways.parse_duration(duration)
+    if seconds is None:
+        await interaction.response.send_message(
+            f"Couldn't parse `{duration}` as a duration - try something like `1h30m`, `2d`, or `45s` "
+            f"(between {giveaways.MIN_SECONDS}s and {giveaways.MAX_SECONDS // 86400}d).",
+            ephemeral=True,
+        )
+        return
+    if winners < 1:
+        await interaction.response.send_message("Need at least 1 winner.", ephemeral=True)
+        return
+    if not item.strip():
+        await interaction.response.send_message("Need to say what's being given away.", ephemeral=True)
+        return
+
+    await interaction.response.defer(ephemeral=True)
+    ends_at = int(time.time()) + seconds
+    try:
+        giveaway = await api_post(
+            "/api/giveaways",
+            {
+                "channel_id": str(interaction.channel.id),
+                "item": item.strip(),
+                "num_winners": winners,
+                "ends_at": ends_at,
+                "created_by": str(interaction.user.id),
+            },
+        )
+    except Exception as e:
+        await interaction.followup.send(f"Couldn't reach the app: {e}", ephemeral=True)
+        return
+
+    # Posted as a normal channel message, not the interaction's own followup -
+    # a giveaway can run for days, well past a webhook token's 15-minute
+    # lifetime, and the ending task needs to be able to fetch and edit it later.
+    view = GiveawayView(giveaway["id"])
+    bot.add_view(view)
+    message = await interaction.channel.send(embed=build_giveaway_embed(giveaway, 0), view=view)
+    await api_post(f"/api/giveaways/{giveaway['id']}/message", {"message_id": str(message.id)})
+
+    await interaction.followup.send(f"Giveaway started - ends <t:{ends_at}:R>.", ephemeral=True)
+
+
+@tasks.loop(seconds=GIVEAWAY_CHECK_SECONDS)
+async def check_giveaways():
+    try:
+        active = await api_get("/api/giveaways/active")
+    except Exception as e:
+        print(f"Failed to fetch active giveaways: {e}")
+        return
+    now = time.time()
+    for g in active:
+        if g["ends_at"] <= now:
+            await _finalize_giveaway(g)
+
+
+@check_giveaways.before_loop
+async def before_check_giveaways():
+    await bot.wait_until_ready()
 
 
 @tasks.loop(minutes=WAR_STATUS_REFRESH_MINUTES)
