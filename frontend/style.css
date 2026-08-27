@@ -9,6 +9,7 @@
   --accent-dim: #2f5b8a;
   --good: #4ec98a;
   --bad: #e0616b;
+  --warn: #dbb554;
   --radius: 8px;
 }
 
@@ -104,6 +105,9 @@ table {
 
 table a { color: var(--accent); text-decoration: none; }
 table a:hover { text-decoration: underline; }
+
+.table-scroll { overflow-x: auto; }
+.heatmap-cell { text-align: center; font-variant-numeric: tabular-nums; }
 
 th, td {
   padding: 6px 10px;

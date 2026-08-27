@@ -27,6 +27,7 @@ class LiveMemberIn(BaseModel):
     bs_estimate_human: str | None = None
     online_probability_now: float | None = None
     estimated_landing_at: int | None = None
+    activity_by_hour: dict[str, float | None] = {}
 
 
 class WarSnapshotIn(BaseModel):

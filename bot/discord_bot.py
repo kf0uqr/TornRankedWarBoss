@@ -1160,6 +1160,21 @@ async def refresh_war_status():
         print(f"refresh_war_status: unhandled error this cycle, will retry next cycle: {e}")
 
 
+def _activity_by_hour_for_member(member_id: int, activity_estimates: dict) -> dict[str, float | None]:
+    """Same gating as fmt.activity_heatmap_row (the Discord version of this
+    table) - null for any hour without enough observed polls yet, rather
+    than a noisy/misleading early percentage."""
+    by_hour = activity_estimates.get(str(member_id), {})
+    result: dict[str, float | None] = {}
+    for hour in range(24):
+        entry = by_hour.get(str(hour))
+        if entry and entry.get("total_count", 0) >= activity.MIN_OBSERVED_SAMPLES:
+            result[str(hour)] = entry["pct"]
+        else:
+            result[str(hour)] = None
+    return result
+
+
 async def _refresh_war_status_once():
     try:
         data = await api_get("/api/wars/current")
@@ -1235,6 +1250,7 @@ async def _refresh_war_status_once():
                             else None
                         ),
                         "estimated_landing_at": _travel_tracker.estimated_arrival(m["id"], travel_overrides),
+                        "activity_by_hour": _activity_by_hour_for_member(m["id"], activity_estimates),
                     }
                     for m in data["members"]
                 ],

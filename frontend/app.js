@@ -1365,7 +1365,31 @@ async function renderLiveWar() {
         </tbody>
       </table>
     </div>
+    <div class="card">
+      <h2>Activity Heatmap</h2>
+      <p class="muted">Percent of observed polls each member was Online, by UTC hour - needs 5+ polls at that hour to show, so this fills in the longer the bot runs.</p>
+      <div class="table-scroll">
+        <table>
+          <thead>
+            <tr><th>Name</th>${Array.from({ length: 24 }, (_, h) => `<th>${String(h).padStart(2, "0")}</th>`).join("")}</tr>
+          </thead>
+          <tbody>
+            ${rows.map((m) => `<tr><td>${m.name}</td>${heatmapCells(m.activity_by_hour)}</tr>`).join("")}
+          </tbody>
+        </table>
+      </div>
+    </div>
   `;
+}
+
+function heatmapCells(activityByHour) {
+  return Array.from({ length: 24 }, (_, h) => {
+    const pct = (activityByHour || {})[String(h)];
+    if (pct == null) return `<td class="heatmap-cell muted">-</td>`;
+    const cls = pct >= 50 ? "positive" : pct < 20 ? "muted" : "";
+    const style = pct >= 20 && pct < 50 ? ' style="color: var(--warn)"' : "";
+    return `<td class="heatmap-cell ${cls}"${style}>${Math.round(pct)}%</td>`;
+  }).join("");
 }
 
 function startLiveWarPolling() {
