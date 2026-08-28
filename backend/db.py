@@ -394,6 +394,17 @@ def get_api_keys() -> list[str]:
 # steady-state call volume doesn't grow with it, so it doesn't need a bigger
 # share, and a human loading a data-heavy page benefits more from a bigger
 # pool than the bot does.
+#
+# Deliberately the FIRST N keys, not the last: /current_war has to read the
+# *enemy* faction's roster, which Torn only allows for a key with Full
+# Access, not Limited - and in practice only the earliest-added key (usually
+# whoever set the app up) tends to have that. Casually-contributed keys via
+# /add_api_key are almost always Limited Access, so reserving from the tail
+# risked handing the bot a slice with no Full Access key in it at all and
+# silently breaking cross-faction polling, discovered when it started
+# returning "Incorrect ID-entity relation" for every /current_war refresh.
+# None of the web app's own routes touch another faction's data, so this
+# doesn't cost it anything - Limited Access already covers everything it does.
 BOT_RESERVED_KEY_COUNT = 2
 
 
@@ -403,14 +414,14 @@ def get_web_api_keys() -> list[str]:
     keys = get_api_keys()
     if len(keys) <= BOT_RESERVED_KEY_COUNT:
         return keys
-    return keys[:-BOT_RESERVED_KEY_COUNT]
+    return keys[BOT_RESERVED_KEY_COUNT:]
 
 
 def get_bot_api_keys() -> list[str]:
     """Keys for the bot's own background/on-demand requests - a small fixed
     slice so it never competes with interactive web app use for the pool."""
     keys = get_api_keys()
-    return keys[-BOT_RESERVED_KEY_COUNT:] if len(keys) > BOT_RESERVED_KEY_COUNT else keys
+    return keys[:BOT_RESERVED_KEY_COUNT] if len(keys) > BOT_RESERVED_KEY_COUNT else keys
 
 
 def add_api_key(api_key: str, label: str | None) -> None:
