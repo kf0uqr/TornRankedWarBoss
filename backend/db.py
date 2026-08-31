@@ -387,39 +387,41 @@ def get_api_keys() -> list[str]:
         conn.close()
 
 
-# Reserved for the Discord bot's own background polling (mainly the
-# /current_war refresh loop) so it can never consume the whole pool and
-# starve an interactive web app user - the web app gets everything else.
-# Fixed count rather than a percentage: as the pool grows, the bot's own
-# steady-state call volume doesn't grow with it, so it doesn't need a bigger
-# share, and a human loading a data-heavy page benefits more from a bigger
-# pool than the bot does.
+# The bot's own background polling (mainly the /current_war refresh loop)
+# is capped to a small fixed slice of the pool so its steady 30s-cadence
+# traffic can never crowd out an interactive web app user waiting on a page
+# load. Deliberately the FIRST N keys, not the last: /current_war has to
+# read the *enemy* faction's roster, which Torn only allows for a key with
+# Full Access, not Limited - and in practice only the earliest-added key
+# (usually whoever set the app up) tends to have that; casually-contributed
+# keys via /add_api_key are almost always Limited Access.
 #
-# Deliberately the FIRST N keys, not the last: /current_war has to read the
-# *enemy* faction's roster, which Torn only allows for a key with Full
-# Access, not Limited - and in practice only the earliest-added key (usually
-# whoever set the app up) tends to have that. Casually-contributed keys via
-# /add_api_key are almost always Limited Access, so reserving from the tail
-# risked handing the bot a slice with no Full Access key in it at all and
-# silently breaking cross-faction polling, discovered when it started
-# returning "Incorrect ID-entity relation" for every /current_war refresh.
-# None of the web app's own routes touch another faction's data, so this
-# doesn't cost it anything - Limited Access already covers everything it does.
+# The web pool is NOT "everything except the bot's slice" - it's the FULL
+# pool, bot's slice included. Some web-triggered actions (e.g. the Xanax-fine
+# lookup during a war sync, via /faction/news) also need whatever elevated
+# access that one Full Access key has, same as the bot's own polling does -
+# excluding it from the web pool broke every one of those calls outright
+# ("Incorrect ID-entity relation" on every key it tried), since there's
+# currently only one key in the whole pool with that access level. Giving
+# the bot a small capped slice already achieves "can't starve the web app";
+# additionally denying the web app access to keys the bot also uses doesn't
+# add any protection, since the rate limit is tracked per key regardless of
+# which caller reaches it - it just breaks whatever specifically needed that
+# key's access level.
 BOT_RESERVED_KEY_COUNT = 2
 
 
 def get_web_api_keys() -> list[str]:
-    """Keys for interactive (human) requests - takes priority over the bot,
-    so this gets everything not explicitly reserved for it."""
-    keys = get_api_keys()
-    if len(keys) <= BOT_RESERVED_KEY_COUNT:
-        return keys
-    return keys[BOT_RESERVED_KEY_COUNT:]
+    """Keys for interactive (human) requests - the full pool, so nothing a
+    web-triggered action needs (including whatever the bot's reserved slice
+    can access) is ever out of reach."""
+    return get_api_keys()
 
 
 def get_bot_api_keys() -> list[str]:
     """Keys for the bot's own background/on-demand requests - a small fixed
-    slice so it never competes with interactive web app use for the pool."""
+    slice so its steady polling load never crowds out interactive web app
+    use, even though the web pool can also reach these same keys."""
     keys = get_api_keys()
     return keys[:BOT_RESERVED_KEY_COUNT] if len(keys) > BOT_RESERVED_KEY_COUNT else keys
 
