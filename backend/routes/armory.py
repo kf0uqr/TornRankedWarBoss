@@ -9,8 +9,7 @@ router = APIRouter(prefix="/api/armory", tags=["armory"], dependencies=[Depends(
 
 
 class TargetUpdateIn(BaseModel):
-    target_qty: int | None = None
-    manual_adjustment: int | None = None
+    target_qty: int
 
 
 class TargetCreateIn(BaseModel):
@@ -46,10 +45,7 @@ def create_target(body: TargetCreateIn):
 def update_target(item_id: int, body: TargetUpdateIn):
     conn = db.get_connection()
     try:
-        if body.target_qty is not None:
-            armory.set_armory_target(conn, item_id, body.target_qty)
-        if body.manual_adjustment is not None:
-            armory.set_armory_manual_adjustment(conn, item_id, body.manual_adjustment)
+        armory.set_armory_target(conn, item_id, body.target_qty)
         return armory.get_armory_targets(conn)
     finally:
         conn.close()

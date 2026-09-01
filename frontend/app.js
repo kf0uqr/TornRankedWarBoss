@@ -1092,7 +1092,7 @@ async function renderArmory() {
       </div>
       <table>
         <thead>
-          <tr><th>Item</th><th>Category</th><th>Target Qty</th><th>On Hand</th><th>Adjustment</th><th>Needed</th><th>Unit Price</th><th>Cost</th><th></th></tr>
+          <tr><th>Item</th><th>Category</th><th>Target Qty</th><th>On Hand</th><th>Needed</th><th>Unit Price</th><th>Cost</th><th></th></tr>
         </thead>
         <tbody id="armory-rows">
           ${targets
@@ -1103,7 +1103,6 @@ async function renderArmory() {
               <td class="muted">${t.armory_category}</td>
               <td><input type="number" class="target-qty" data-item="${t.item_id}" value="${t.target_qty}" style="width:90px" /></td>
               <td class="on-hand">-</td>
-              <td><input type="number" class="manual-adjustment" data-item="${t.item_id}" value="${t.manual_adjustment ?? 0}" style="width:90px" title="Stock Torn's API can't see (e.g. moved into a personal display case) but that should still count as available" /></td>
               <td class="needed">-</td>
               <td class="unit-price">-</td>
               <td class="cost">-</td>
@@ -1113,7 +1112,6 @@ async function renderArmory() {
             .join("")}
         </tbody>
       </table>
-      <p class="muted">Adjustment: extra units to add on top of what Torn's API reports as on-hand - e.g. stock parked in a personal display case, which drops out of Torn's inventory API entirely.</p>
       <div class="row" style="margin-top:6px"><strong>Total: <span id="armory-total">-</span></strong></div>
     </div>
 
@@ -1156,17 +1154,6 @@ async function renderArmory() {
         body: JSON.stringify({ target_qty: Number(inp.value) }),
       });
       toast("Target updated");
-      loadRestock();
-    });
-  });
-
-  root.querySelectorAll(".manual-adjustment").forEach((inp) => {
-    inp.addEventListener("change", async () => {
-      await api(`/api/armory/targets/${inp.dataset.item}`, {
-        method: "PATCH",
-        body: JSON.stringify({ manual_adjustment: Number(inp.value) }),
-      });
-      toast("Adjustment updated");
       loadRestock();
     });
   });
