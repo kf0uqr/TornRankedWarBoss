@@ -1,12 +1,13 @@
 // ==UserScript==
 // @name         Torn War Manager - Live War Overlay
 // @namespace    torn-ranked-war-boss
-// @version      1.0.0
+// @version      1.1.0
 // @description  Read-only overlay on the faction page showing enemy online probability, landing ETA, and estimated stats from your Torn Ranked War Boss app.
 // @match        https://www.torn.com/factions.php*
 // @grant        GM_xmlhttpRequest
 // @grant        GM_setValue
 // @grant        GM_getValue
+// @connect      war.taxevasionunit.uk
 // @connect      localhost
 // @connect      127.0.0.1
 // @run-at       document-idle
@@ -15,11 +16,12 @@
 (function () {
   "use strict";
 
-  // Change this if your app runs somewhere else (a different port, or the
-  // hostname of a Cloudflare Tunnel exposing it beyond localhost). If you
-  // change the host, also add a matching @connect line above - Tampermonkey
-  // blocks cross-origin requests to hosts it isn't told about.
-  const APP_BASE_URL = "http://localhost:8787";
+  // Change this if your app is reachable somewhere else (a different
+  // Cloudflare Tunnel hostname, or plain http://localhost:8787 if you're
+  // running Chrome on the same machine as the app). If you change the host,
+  // also add a matching @connect line above - Tampermonkey blocks
+  // cross-origin requests to hosts it isn't told about.
+  const APP_BASE_URL = "https://war.taxevasionunit.uk";
   const TOKEN_KEY = "twm_live_token";
   // Cheap to poll fast - this only re-reads the app's own cached snapshot,
   // never touches Torn's API (the bot's own refresh cadence is what actually
@@ -135,7 +137,12 @@
 
   async function renderSnapshot(body) {
     if (!GM_getValue(TOKEN_KEY)) {
-      renderLoginForm(body);
+      // This runs on a 2s poll even before login, so only (re-)render the form
+      // if it isn't already showing - otherwise every tick wipes out whatever
+      // the user has typed or pasted into the key field so far.
+      if (!body.querySelector("#twm-live-key")) {
+        renderLoginForm(body);
+      }
       return;
     }
 
