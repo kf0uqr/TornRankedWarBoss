@@ -231,6 +231,13 @@ class TornClient:
         Each entry has at least "ID" (item id) and "quantity"."""
         return self.get("/user", {"selections": "display"})["display"]
 
+    def user_id(self) -> int:
+        """The calling key's own Torn player id - same personal-only rule as
+        bars/battlestats/display (self-identifies regardless of any id in
+        the request). Cheapest way to find out which member a pooled key
+        belongs to - always call on a single-key TornClient([key])."""
+        return self.get("/user", {"selections": "profile"})["profile"]["id"]
+
     # --- Torn endpoints ---
 
     def torn_items(self, category: str | None = None) -> list[dict]:

@@ -8,7 +8,7 @@ is pulled and summed per attacker.
 
 import time
 
-from backend import armory, stats
+from backend import armory, db, ranks, stats
 from backend.torn_api import TornClient
 
 
@@ -132,19 +132,69 @@ def sync_war(client: TornClient, conn, faction_id: int, ranked_war_id: int) -> i
         (ranked_war_id, opponent_name, start, end, int(time.time())),
     )
 
-    for mid in member_ids:
-        existing = conn.execute(
-            "SELECT fine_waived, pay_rank FROM war_members WHERE war_id = ? AND member_id = ?",
-            (ranked_war_id, mid),
-        ).fetchone()
+    # pay_rank is only ever computed once per (war, member) - never overwritten on
+    # a resync, so a manual override in the paysheet always sticks. Only bother with
+    # the auto-rank inputs below (which cost real Torn API calls, one per pooled key)
+    # if there's actually at least one member who needs a fresh computation.
+    existing_by_member = {
+        row["member_id"]: (row["fine_waived"], row["pay_rank"])
+        for row in conn.execute("SELECT member_id, fine_waived, pay_rank FROM war_members WHERE war_id = ?", (ranked_war_id,))
+    }
+    new_member_ids = member_ids - set(existing_by_member)
 
+    has_discord_ids: set[int] = set()
+    has_key_ids: set[int] = set()
+    kingpin_ids: set[int] = set()
+    if new_member_ids:
+        has_discord_ids = set(db.get_torn_id_to_discord_id_map())
+        has_key_ids = ranks.get_member_ids_with_keys()
+
+        # Kingpin is the war's single best non-leadership performer, via the
+        # same overall_rank ranking the Player Stats page already computes -
+        # leadership is excluded by their live Torn position (not pay_rank,
+        # which is what we're in the middle of computing right now).
+        non_leadership = [
+            {
+                "member_id": mid,
+                "inside_hits": inside_hits.get(mid, 0),
+                "outside_hits": outside_hits.get(mid, 0),
+                "assist_hits": assist_hits.get(mid, 0),
+                "respect": respect.get(mid, 0.0),
+                "respect_lost": respect_lost.get(mid, 0.0),
+                "best_hit": best_hit.get(mid, 0.0),
+                "chain_respect_total": chain_respect_total.get(mid, 0.0),
+                "chain_hits_total": chain_hits_total.get(mid, 0),
+                "losses": losses.get(mid, 0),
+                "escapes": escapes.get(mid, 0),
+                "draws": draws.get(mid, 0),
+                "retaliation_hits": retaliation_hits.get(mid, 0),
+                "bonus_hits": bonus_hits.get(mid, 0),
+            }
+            for mid in member_ids
+            if not stats._is_leadership(positions.get(mid))
+        ]
+        if non_leadership:
+            kingpin_ids = {m["member_id"] for m in stats.rank_members(non_leadership) if m["overall_rank"] == 1}
+
+    for mid in member_ids:
         position = positions.get(mid)
-        if existing:
-            fine_waived = existing["fine_waived"]
-            pay_rank = existing["pay_rank"]
+        if mid in existing_by_member:
+            fine_waived, pay_rank = existing_by_member[mid]
         else:
             fine_waived = 0
-            pay_rank = known_ranks_by_lower.get(position.lower()) if position else None
+            if position and stats._is_leadership(position):
+                pay_rank = known_ranks_by_lower.get(position.lower())
+            else:
+                war_hits = inside_hits.get(mid, 0) + outside_hits.get(mid, 0) + assist_hits.get(mid, 0)
+                eligible = ranks.compute_eligible_rank(
+                    is_kingpin=mid in kingpin_ids,
+                    level=levels.get(mid),
+                    has_discord=mid in has_discord_ids,
+                    war_hits=war_hits,
+                    has_key=mid in has_key_ids,
+                    was_ledger_keeper=bool(position) and position.strip().lower() == "ledger keeper",
+                )
+                pay_rank = known_ranks_by_lower.get(eligible.lower(), eligible)
 
         conn.execute(
             """
