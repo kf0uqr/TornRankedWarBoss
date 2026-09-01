@@ -871,6 +871,8 @@ async function renderWarDetail(warId) {
       </div>
     </div>
 
+    <div class="card" id="budget-check-card"></div>
+
     <div class="card">
       <h2>Expenses</h2>
       ${data.armory_error ? `<p class="muted negative">Armory cost unavailable: ${data.armory_error}</p>` : ""}
@@ -1046,6 +1048,25 @@ async function renderWarDetail(warId) {
   const totals = paysheetTotalsCells(data.members);
   root.querySelector("#paysheet-totals").innerHTML = `
     <tr>${totals.map((c) => `<td><strong class="${c && c.color === IMAGE_COLORS.bad ? "negative" : ""}">${cellText(c)}</strong></td>`).join("")}</tr>
+  `;
+
+  // Budget check: does the cache sell price actually cover everyone's final
+  // pay plus restocking the armory? A meaningful (not just rounding-noise)
+  // diff is expected here whenever any rank is paid below 100% - that
+  // difference is money that stays with the faction rather than going to
+  // any single member's payout, not a bug.
+  const totalPayout = sumBy(data.members, (m) => m.final_pay);
+  const armoryCost = data.armory_line.amount;
+  const budgetDiff = w.cache_sell_price - (totalPayout + armoryCost);
+  root.querySelector("#budget-check-card").innerHTML = `
+    <h2>Budget Check</h2>
+    <div class="stat-grid">
+      <div class="stat"><div class="label">Cache Sell Price</div><div class="value">${money(w.cache_sell_price)}</div></div>
+      <div class="stat"><div class="label">Total Payouts</div><div class="value">${money(totalPayout)}</div></div>
+      <div class="stat"><div class="label">Armory Restock Cost</div><div class="value">${money(armoryCost)}</div></div>
+      <div class="stat"><div class="label">Difference</div><div class="value ${budgetDiff < 0 ? "negative" : "positive"}">${money(budgetDiff)}</div></div>
+    </div>
+    <p class="muted">Difference = Cache Sell Price - (Total Payouts + Armory Restock Cost). Positive means money is left over after paying everyone and restocking; negative means the cache sell price didn't cover it.</p>
   `;
 
   memberBody.querySelectorAll(".member-rank").forEach((sel) => {
