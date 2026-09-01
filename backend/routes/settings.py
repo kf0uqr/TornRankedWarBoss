@@ -91,7 +91,6 @@ class ExportedArmoryTarget(BaseModel):
     armory_category: str
     torn_item_category: str
     target_qty: int
-    include_display_case: bool = False
 
 
 class SettingsExport(BaseModel):
@@ -403,8 +402,6 @@ def import_settings(body: SettingsExport):
             armory.add_armory_target(
                 conn, target.item_id, target.item_name, target.armory_category, target.torn_item_category, target.target_qty
             )
-            if target.include_display_case:
-                armory.set_armory_include_display_case(conn, target.item_id, True)
     finally:
         conn.close()
 

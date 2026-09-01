@@ -14,6 +14,12 @@ from backend.torn_api import TornClient
 _ANCHOR_RE = re.compile(r"XID=(\d+)[^>]*>([^<]*)</a>")
 _USED_RE = re.compile(r"used one of the faction's\s+(.+?)\s+items?\b", re.IGNORECASE)
 
+# Xanax is the one item that round-trips through the app owner's personal
+# display case (in the armory during a war, back in the display case
+# after) - nothing else ever does, so this is a flat constant rather than a
+# per-item setting.
+XANAX_ITEM_ID = 206
+
 
 def count_item_usage(client: TornClient, item_name: str, from_ts: int, to_ts: int) -> dict[int, int]:
     """Counts how many times each member used `item_name` from the faction armory in [from_ts, to_ts]."""
@@ -34,7 +40,7 @@ def count_item_usage(client: TornClient, item_name: str, from_ts: int, to_ts: in
 
 def get_armory_targets(conn) -> list[dict]:
     rows = conn.execute(
-        "SELECT item_id, item_name, armory_category, torn_item_category, target_qty, include_display_case "
+        "SELECT item_id, item_name, armory_category, torn_item_category, target_qty "
         "FROM armory_targets ORDER BY armory_category, item_name"
     ).fetchall()
     return [dict(row) for row in rows]
@@ -44,14 +50,6 @@ def set_armory_target(conn, item_id: int, target_qty: int):
     conn.execute(
         "UPDATE armory_targets SET target_qty = ? WHERE item_id = ?",
         (target_qty, item_id),
-    )
-    conn.commit()
-
-
-def set_armory_include_display_case(conn, item_id: int, include_display_case: bool):
-    conn.execute(
-        "UPDATE armory_targets SET include_display_case = ? WHERE item_id = ?",
-        (1 if include_display_case else 0, item_id),
     )
     conn.commit()
 
@@ -99,10 +97,8 @@ def compute_restock(client: TornClient, targets: list[dict]) -> dict:
         for entry in client.torn_items(cat):
             price_by_id[entry["id"]] = entry["value"]["market_price"]
 
-    # Only fetched if something actually needs it - most factions don't
-    # round-trip any item through a personal display case at all.
     display_case_by_id: dict[int, int] = {}
-    if any(t.get("include_display_case") for t in targets):
+    if any(t["item_id"] == XANAX_ITEM_ID for t in targets):
         display_case_by_id = get_display_case_quantities()
 
     lines = []
@@ -115,7 +111,7 @@ def compute_restock(client: TornClient, targets: list[dict]) -> dict:
         # regardless of which state things are currently in - no need to
         # special-case "is a war active right now".
         on_hand = on_hand_by_id.get(item_id, 0)
-        if t.get("include_display_case"):
+        if item_id == XANAX_ITEM_ID:
             on_hand += display_case_by_id.get(item_id, 0)
         needed = max(0, t["target_qty"] - on_hand)
         unit_price = price_by_id.get(item_id, 0)
@@ -127,7 +123,6 @@ def compute_restock(client: TornClient, targets: list[dict]) -> dict:
                 "item_name": t["item_name"],
                 "target_qty": t["target_qty"],
                 "on_hand": on_hand,
-                "include_display_case": bool(t.get("include_display_case")),
                 "needed": needed,
                 "unit_price": unit_price,
                 "cost": cost,

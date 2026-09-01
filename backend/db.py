@@ -87,8 +87,7 @@ CREATE TABLE IF NOT EXISTS armory_targets (
     item_name TEXT NOT NULL,
     armory_category TEXT NOT NULL,
     torn_item_category TEXT NOT NULL,
-    target_qty INTEGER NOT NULL,
-    include_display_case INTEGER NOT NULL DEFAULT 0
+    target_qty INTEGER NOT NULL
 );
 
 CREATE TABLE IF NOT EXISTS wars (
@@ -276,15 +275,6 @@ def _post_migrate(conn, had_legacy_fine: bool):
                 "UPDATE rank_pay_rates SET is_leadership = 1 WHERE rank_name = ?",
                 [(rank,) for rank in DEFAULT_LEADERSHIP_RANKS],
             )
-
-    if _table_exists(conn, "armory_targets"):
-        armory_columns = {row["name"] for row in conn.execute("PRAGMA table_info(armory_targets)")}
-        if "include_display_case" not in armory_columns:
-            conn.execute("ALTER TABLE armory_targets ADD COLUMN include_display_case INTEGER NOT NULL DEFAULT 0")
-            # Xanax is the one item that actually round-trips through a
-            # personal display case in practice - on by default so this
-            # works out of the box for the case it exists for.
-            conn.execute("UPDATE armory_targets SET include_display_case = 1 WHERE item_id = 206")
 
     if had_legacy_fine:
         conn.execute(
