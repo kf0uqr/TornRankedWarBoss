@@ -1,10 +1,13 @@
 // ==UserScript==
 // @name         Torn War Manager - Rank Promotion Helper
 // @namespace    torn-ranked-war-boss
-// @version      1.0.0
+// @version      1.1.0
 // @description  Compares each member's live Torn position against the rank your locally-running Torn Ranked War Boss app computed for them, and highlights the correct dropdown option to click. Never selects it for you - you always click Torn's own option yourself.
 // @match        https://www.torn.com/factions.php*
 // @grant        GM_xmlhttpRequest
+// @grant        GM_setValue
+// @grant        GM_getValue
+// @connect      war.taxevasionunit.uk
 // @connect      localhost
 // @connect      127.0.0.1
 // @run-at       document-idle
@@ -13,22 +16,36 @@
 (function () {
   "use strict";
 
-  // Change this if your app runs on a different port (see start.sh / app.py).
-  const APP_BASE_URL = "http://localhost:8787";
+  // Change this if your app is reachable somewhere else (a different Cloudflare
+  // Tunnel hostname, or plain http://localhost:8787 if you're running Chrome on
+  // the same machine as the app). If you change the host, also add a matching
+  // @connect line above - Tampermonkey blocks cross-origin requests to hosts
+  // it isn't told about.
+  const APP_BASE_URL = "https://war.taxevasionunit.uk";
+  const TOKEN_KEY = "twm_rank_token";
 
   // Exzo's Torn position is always left as "Apple Man" - a cosmetic vanity rank,
   // regardless of whatever the ladder would otherwise compute for him. Keyed by
   // name rather than member_id since his id hasn't been independently confirmed.
   const VANITY_OVERRIDES = { exzo: "Apple Man" };
 
-  // ---------- Talking to the local app ----------
+  // ---------- Talking to the app ----------
+  // Every route needs a logged-in session now, so requests (besides login
+  // itself) carry the bearer token from the last successful login - same
+  // pattern as the Live War overlay script, since a Tampermonkey script can't
+  // rely on cookie-jar behavior across contexts.
 
-  function gmRequest(method, path, body) {
+  function gmRequest(method, path, { body, auth = true } = {}) {
     return new Promise((resolve, reject) => {
+      const headers = { "Content-Type": "application/json" };
+      if (auth) {
+        const token = GM_getValue(TOKEN_KEY);
+        if (token) headers["Authorization"] = `Bearer ${token}`;
+      }
       GM_xmlhttpRequest({
         method,
         url: APP_BASE_URL + path,
-        headers: { "Content-Type": "application/json" },
+        headers,
         data: body ? JSON.stringify(body) : undefined,
         onload: (res) => {
           let data = {};
@@ -40,17 +57,20 @@
           if (res.status >= 200 && res.status < 300) {
             resolve(data);
           } else {
-            reject(new Error(data.detail || `HTTP ${res.status}`));
+            const err = new Error(data.detail || `HTTP ${res.status}`);
+            err.status = res.status;
+            reject(err);
           }
         },
-        onerror: () => reject(new Error("Could not reach the local app - is it running?")),
-        ontimeout: () => reject(new Error("Local app request timed out")),
+        onerror: () => reject(new Error("Could not reach the app - is it running?")),
+        ontimeout: () => reject(new Error("App request timed out")),
         timeout: 15000,
       });
     });
   }
 
   const api = {
+    login: (apiKey) => gmRequest("POST", "/api/auth/login", { body: { api_key: apiKey }, auth: false }),
     listWars: () => gmRequest("GET", "/api/wars"),
     getWar: (warId) => gmRequest("GET", `/api/wars/${warId}`),
   };
@@ -152,13 +172,47 @@
     document.head.appendChild(style);
   }
 
+  function renderLoginForm(body) {
+    body.innerHTML = `
+      <div style="margin-bottom:8px">Log in with your own Torn API key to see rank mismatches.</div>
+      <div style="display:flex; gap:6px">
+        <input type="password" id="twm-rank-key" placeholder="Torn API key" style="flex:1" />
+        <button class="twm-primary" id="twm-rank-login">Log in</button>
+      </div>
+      <div class="twm-error" id="twm-rank-login-error"></div>
+    `;
+    body.querySelector("#twm-rank-login").addEventListener("click", async () => {
+      const input = body.querySelector("#twm-rank-key");
+      const errorEl = body.querySelector("#twm-rank-login-error");
+      const key = input.value.trim();
+      if (!key) return;
+      errorEl.textContent = "";
+      try {
+        const res = await api.login(key);
+        GM_setValue(TOKEN_KEY, res.token);
+        loadWarsIntoPanel(body.closest("#twm-rank-panel"));
+      } catch (e) {
+        errorEl.textContent = e.message;
+      }
+    });
+  }
+
   async function renderPanel(panelEl, warId) {
     const body = panelEl.querySelector(".twm-body");
+    if (!GM_getValue(TOKEN_KEY)) {
+      renderLoginForm(body);
+      return;
+    }
     body.innerHTML = "Loading...";
     let war;
     try {
       war = await api.getWar(warId);
     } catch (e) {
+      if (e.status === 401) {
+        GM_setValue(TOKEN_KEY, "");
+        renderLoginForm(body);
+        return;
+      }
       body.innerHTML = `<div class="twm-error">${e.message}</div>`;
       return;
     }
@@ -240,10 +294,25 @@
       collapseBtn.textContent = collapsed ? "-" : "+";
     });
 
+    await loadWarsIntoPanel(panel);
+  }
+
+  async function loadWarsIntoPanel(panel) {
+    const body = panel.querySelector(".twm-body");
+    if (!GM_getValue(TOKEN_KEY)) {
+      renderLoginForm(body);
+      return;
+    }
+
     let wars;
     try {
       wars = await api.listWars();
     } catch (e) {
+      if (e.status === 401) {
+        GM_setValue(TOKEN_KEY, "");
+        renderLoginForm(body);
+        return;
+      }
       body.innerHTML = `<div class="twm-error">${e.message}<br/>Make sure the app is running at ${APP_BASE_URL}.</div>`;
       return;
     }
