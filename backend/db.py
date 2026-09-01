@@ -16,10 +16,13 @@ DEFAULT_RANK_PAY_RATES = [
     ("Audit Bait", 70.0),
 ]
 
-# Ranks trusted with full leadership access (existing pages/API) when they
-# log in - everyone else only gets the read-only Live War page. Mirrors the
-# same ranks already treated as the trusted 100%-tier for pay purposes.
-DEFAULT_LEADERSHIP_RANKS = {"Leader", "Co-Leader", "Chief Evasion Officer", "Ledger Keeper"}
+# Ranks trusted with full leadership access (Wars, Armory, Settings) when
+# they log in - everyone else gets Stats and Live War only. Deliberately NOT
+# the same set as the 100%-pay-tier ranks in DEFAULT_RANK_PAY_RATES ("Ledger
+# Keeper" is in that 100% tier but isn't trusted with admin access) - pay
+# tier and access trust are different questions that happen to overlap for
+# most ranks, not the same thing.
+DEFAULT_LEADERSHIP_RANKS = {"Leader", "Co-Leader", "Chief Evasion Officer"}
 
 SESSION_LIFETIME_SECONDS = 30 * 24 * 60 * 60
 

@@ -370,13 +370,15 @@ function showApp() {
   document.getElementById("login-screen").classList.add("hidden");
   document.getElementById("app-shell").classList.remove("hidden");
 
-  const leadershipTabs = ["wars", "armory", "stats", "settings"];
+  // Stats and Live War are visible to every logged-in member; everything
+  // else (Wars, Armory, Settings) is leadership-only.
+  const leadershipTabs = ["wars", "armory", "settings"];
   document.querySelectorAll(".tab-btn").forEach((btn) => {
     const restricted = leadershipTabs.includes(btn.dataset.tab);
     btn.classList.toggle("hidden", restricted && !state.session.is_leadership);
   });
 
-  switchTab(state.session.is_leadership ? "wars" : "live");
+  switchTab(state.session.is_leadership ? "wars" : "stats");
 }
 
 async function checkSession() {

@@ -1,10 +1,12 @@
 from fastapi import APIRouter, Depends
 
 from backend import db, stats
-from backend.deps import require_client, require_faction_id, require_leadership, torn_error_to_http
+from backend.deps import require_client, require_faction_id, require_session, torn_error_to_http
 from backend.torn_api import TornAPIError, TornClient
 
-router = APIRouter(prefix="/api/stats", tags=["stats"], dependencies=[Depends(require_leadership)])
+# require_session, not require_leadership - Stats is visible to every logged-in
+# faction member, not just leadership (unlike every other router in this app).
+router = APIRouter(prefix="/api/stats", tags=["stats"], dependencies=[Depends(require_session)])
 
 
 @router.get("/career")
