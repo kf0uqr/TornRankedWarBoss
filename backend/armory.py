@@ -33,7 +33,7 @@ def count_item_usage(client: TornClient, item_name: str, from_ts: int, to_ts: in
 
 def get_armory_targets(conn) -> list[dict]:
     rows = conn.execute(
-        "SELECT item_id, item_name, armory_category, torn_item_category, target_qty "
+        "SELECT item_id, item_name, armory_category, torn_item_category, target_qty, manual_adjustment "
         "FROM armory_targets ORDER BY armory_category, item_name"
     ).fetchall()
     return [dict(row) for row in rows]
@@ -43,6 +43,19 @@ def set_armory_target(conn, item_id: int, target_qty: int):
     conn.execute(
         "UPDATE armory_targets SET target_qty = ? WHERE item_id = ?",
         (target_qty, item_id),
+    )
+    conn.commit()
+
+
+def set_armory_manual_adjustment(conn, item_id: int, manual_adjustment: int):
+    """Extra units to fold into an item's on-hand count for restock math -
+    for stock Torn's own API can't see (e.g. everything of that item has
+    been moved into someone's personal display case, which drops it out of
+    /faction/inventory's response entirely) but should still count as
+    available, e.g. because it's earmarked to come back to the armory."""
+    conn.execute(
+        "UPDATE armory_targets SET manual_adjustment = ? WHERE item_id = ?",
+        (manual_adjustment, item_id),
     )
     conn.commit()
 
@@ -79,7 +92,13 @@ def compute_restock(client: TornClient, targets: list[dict]) -> dict:
     total_cost = 0.0
     for t in targets:
         item_id = t["item_id"]
-        on_hand = on_hand_by_id.get(item_id, 0)
+        # manual_adjustment covers stock Torn's own API can't see - e.g. once
+        # every unit of an item is moved into someone's personal display
+        # case, it drops out of /faction/inventory's response entirely
+        # (confirmed against Torn's API directly: the item just isn't in the
+        # list, not even at 0) even though it may still be earmarked to come
+        # back to the armory later.
+        on_hand = on_hand_by_id.get(item_id, 0) + t.get("manual_adjustment", 0)
         needed = max(0, t["target_qty"] - on_hand)
         unit_price = price_by_id.get(item_id, 0)
         cost = needed * unit_price
@@ -90,6 +109,7 @@ def compute_restock(client: TornClient, targets: list[dict]) -> dict:
                 "item_name": t["item_name"],
                 "target_qty": t["target_qty"],
                 "on_hand": on_hand,
+                "manual_adjustment": t.get("manual_adjustment", 0),
                 "needed": needed,
                 "unit_price": unit_price,
                 "cost": cost,

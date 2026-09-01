@@ -91,6 +91,7 @@ class ExportedArmoryTarget(BaseModel):
     armory_category: str
     torn_item_category: str
     target_qty: int
+    manual_adjustment: int = 0
 
 
 class SettingsExport(BaseModel):
@@ -402,6 +403,8 @@ def import_settings(body: SettingsExport):
             armory.add_armory_target(
                 conn, target.item_id, target.item_name, target.armory_category, target.torn_item_category, target.target_qty
             )
+            if target.manual_adjustment:
+                armory.set_armory_manual_adjustment(conn, target.item_id, target.manual_adjustment)
     finally:
         conn.close()
 

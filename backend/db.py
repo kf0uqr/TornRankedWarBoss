@@ -87,7 +87,8 @@ CREATE TABLE IF NOT EXISTS armory_targets (
     item_name TEXT NOT NULL,
     armory_category TEXT NOT NULL,
     torn_item_category TEXT NOT NULL,
-    target_qty INTEGER NOT NULL
+    target_qty INTEGER NOT NULL,
+    manual_adjustment INTEGER NOT NULL DEFAULT 0
 );
 
 CREATE TABLE IF NOT EXISTS wars (
@@ -275,6 +276,11 @@ def _post_migrate(conn, had_legacy_fine: bool):
                 "UPDATE rank_pay_rates SET is_leadership = 1 WHERE rank_name = ?",
                 [(rank,) for rank in DEFAULT_LEADERSHIP_RANKS],
             )
+
+    if _table_exists(conn, "armory_targets"):
+        armory_columns = {row["name"] for row in conn.execute("PRAGMA table_info(armory_targets)")}
+        if "manual_adjustment" not in armory_columns:
+            conn.execute("ALTER TABLE armory_targets ADD COLUMN manual_adjustment INTEGER NOT NULL DEFAULT 0")
 
     if had_legacy_fine:
         conn.execute(
