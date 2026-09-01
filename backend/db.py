@@ -87,7 +87,8 @@ CREATE TABLE IF NOT EXISTS armory_targets (
     item_name TEXT NOT NULL,
     armory_category TEXT NOT NULL,
     torn_item_category TEXT NOT NULL,
-    target_qty INTEGER NOT NULL
+    target_qty INTEGER NOT NULL,
+    include_display_case INTEGER NOT NULL DEFAULT 0
 );
 
 CREATE TABLE IF NOT EXISTS wars (
@@ -276,6 +277,15 @@ def _post_migrate(conn, had_legacy_fine: bool):
                 [(rank,) for rank in DEFAULT_LEADERSHIP_RANKS],
             )
 
+    if _table_exists(conn, "armory_targets"):
+        armory_columns = {row["name"] for row in conn.execute("PRAGMA table_info(armory_targets)")}
+        if "include_display_case" not in armory_columns:
+            conn.execute("ALTER TABLE armory_targets ADD COLUMN include_display_case INTEGER NOT NULL DEFAULT 0")
+            # Xanax is the one item that actually round-trips through a
+            # personal display case in practice - on by default so this
+            # works out of the box for the case it exists for.
+            conn.execute("UPDATE armory_targets SET include_display_case = 1 WHERE item_id = 206")
+
     if had_legacy_fine:
         conn.execute(
             """
@@ -424,6 +434,18 @@ def get_bot_api_keys() -> list[str]:
     use, even though the web pool can also reach these same keys."""
     keys = get_api_keys()
     return keys[:BOT_RESERVED_KEY_COUNT] if len(keys) > BOT_RESERVED_KEY_COUNT else keys
+
+
+def get_primary_api_key() -> str | None:
+    """The first-ever-added key in the pool (usually whoever set the app up)
+    - already trusted elsewhere as the one Full Access key (see
+    BOT_RESERVED_KEY_COUNT's comment). Personal-only Torn endpoints like the
+    Display Case selection only ever return whoever's key made the call, so
+    reading a specific person's display case (e.g. wherever the faction
+    parks its Xanax between wars) needs their key specifically, not the
+    round-robined pool."""
+    keys = get_api_keys()
+    return keys[0] if keys else None
 
 
 def add_api_key(api_key: str, label: str | None) -> None:

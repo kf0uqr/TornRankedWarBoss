@@ -9,7 +9,8 @@ router = APIRouter(prefix="/api/armory", tags=["armory"], dependencies=[Depends(
 
 
 class TargetUpdateIn(BaseModel):
-    target_qty: int
+    target_qty: int | None = None
+    include_display_case: bool | None = None
 
 
 class TargetCreateIn(BaseModel):
@@ -45,7 +46,10 @@ def create_target(body: TargetCreateIn):
 def update_target(item_id: int, body: TargetUpdateIn):
     conn = db.get_connection()
     try:
-        armory.set_armory_target(conn, item_id, body.target_qty)
+        if body.target_qty is not None:
+            armory.set_armory_target(conn, item_id, body.target_qty)
+        if body.include_display_case is not None:
+            armory.set_armory_include_display_case(conn, item_id, body.include_display_case)
         return armory.get_armory_targets(conn)
     finally:
         conn.close()

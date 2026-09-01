@@ -1092,7 +1092,7 @@ async function renderArmory() {
       </div>
       <table>
         <thead>
-          <tr><th>Item</th><th>Category</th><th>Target Qty</th><th>On Hand</th><th>Needed</th><th>Unit Price</th><th>Cost</th><th></th></tr>
+          <tr><th>Item</th><th>Category</th><th>Target Qty</th><th>On Hand</th><th>Display Case</th><th>Needed</th><th>Unit Price</th><th>Cost</th><th></th></tr>
         </thead>
         <tbody id="armory-rows">
           ${targets
@@ -1103,6 +1103,7 @@ async function renderArmory() {
               <td class="muted">${t.armory_category}</td>
               <td><input type="number" class="target-qty" data-item="${t.item_id}" value="${t.target_qty}" style="width:90px" /></td>
               <td class="on-hand">-</td>
+              <td><input type="checkbox" class="include-display-case" data-item="${t.item_id}" ${t.include_display_case ? "checked" : ""} title="Also count this item's quantity in your personal Torn display case toward on-hand stock" /></td>
               <td class="needed">-</td>
               <td class="unit-price">-</td>
               <td class="cost">-</td>
@@ -1112,6 +1113,7 @@ async function renderArmory() {
             .join("")}
         </tbody>
       </table>
+      <p class="muted">Display Case: check for an item that round-trips through your personal display case (e.g. Xanax parked there between wars) - its quantity there gets added to on-hand automatically, since Torn's inventory API stops listing an item entirely once every unit is in a display case.</p>
       <div class="row" style="margin-top:6px"><strong>Total: <span id="armory-total">-</span></strong></div>
     </div>
 
@@ -1154,6 +1156,17 @@ async function renderArmory() {
         body: JSON.stringify({ target_qty: Number(inp.value) }),
       });
       toast("Target updated");
+      loadRestock();
+    });
+  });
+
+  root.querySelectorAll(".include-display-case").forEach((inp) => {
+    inp.addEventListener("change", async () => {
+      await api(`/api/armory/targets/${inp.dataset.item}`, {
+        method: "PATCH",
+        body: JSON.stringify({ include_display_case: inp.checked }),
+      });
+      toast("Updated");
       loadRestock();
     });
   });

@@ -223,6 +223,14 @@ class TornClient:
         Returns {"bars": {...}, "battlestats": {...}, "profile": {...}}."""
         return self.get("/user", {"selections": "bars,battlestats,profile"})
 
+    def user_display_case(self) -> list[dict]:
+        """The calling key's own personal Display Case contents - same
+        personal-only rule as bars/battlestats, always call this on a
+        single-key TornClient([key]) built from whichever specific member's
+        display case is being read, never the pooled/round-robined client.
+        Each entry has at least "ID" (item id) and "quantity"."""
+        return self.get("/user", {"selections": "display"})["display"]
+
     # --- Torn endpoints ---
 
     def torn_items(self, category: str | None = None) -> list[dict]:
