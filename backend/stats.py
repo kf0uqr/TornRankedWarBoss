@@ -1,6 +1,6 @@
-"""Player Stats: ranks members on total hits, respect gained from inside hits, and
-respect lost defending against inside hits, then sums the three ranks into an overall
-rank - reconstructed from the `Player Stats` sheet's layout.
+"""Player Stats: ranks members on total hits, respect gained from inside hits,
+respect lost defending against inside hits, best single hit, and average
+respect per hit, then sums the five ranks into an overall rank.
 
 Ranking is dense (ties share a rank, the next distinct value is rank+1, no gaps) -
 verified against the original sheet's numbers.
@@ -78,37 +78,28 @@ def rank_members(members: list[dict]) -> list[dict]:
     losses, escapes, draws, retaliation_hits, bonus_hits. Returns the same members
     enriched with per-category and overall dense ranks, sorted by overall rank.
 
-    Overall rank/Score is still just hits + respect gained + respect lost, as
-    verified against the original sheet - the newer quality/outcome metrics below
-    are shown for reference only and aren't folded into it (yet)."""
+    Overall rank/Score is hits + respect gained + respect lost + best hit +
+    avg respect/hit, all dense-ranked and summed (lower total = better)."""
     enriched = [{**m, "total_hits": m["inside_hits"] + m["outside_hits"] + m["assist_hits"]} for m in members]
+
+    for m in enriched:
+        m["avg_respect_per_hit"] = m["chain_respect_total"] / m["chain_hits_total"] if m["chain_hits_total"] else 0.0
 
     hits_rank = _dense_rank([(m["member_id"], m["total_hits"]) for m in enriched], descending=True)
     respect_gained_rank = _dense_rank([(m["member_id"], m["respect"]) for m in enriched], descending=True)
     respect_lost_rank = _dense_rank([(m["member_id"], m["respect_lost"]) for m in enriched], descending=False)
+    best_hit_rank = _dense_rank([(m["member_id"], m["best_hit"]) for m in enriched], descending=True)
+    avg_respect_per_hit_rank = _dense_rank([(m["member_id"], m["avg_respect_per_hit"]) for m in enriched], descending=True)
 
     for m in enriched:
         m["hits_rank"] = hits_rank[m["member_id"]]
         m["respect_gained_rank"] = respect_gained_rank[m["member_id"]]
         m["respect_lost_rank"] = respect_lost_rank[m["member_id"]]
-        m["score"] = m["hits_rank"] + m["respect_gained_rank"] + m["respect_lost_rank"]
-
-        m["avg_respect_per_hit"] = m["chain_respect_total"] / m["chain_hits_total"] if m["chain_hits_total"] else 0.0
-        failed_attempts = m["losses"] + m["escapes"] + m["draws"]
-        m["win_rate_pct"] = (
-            (m["chain_hits_total"] - failed_attempts) / m["chain_hits_total"] * 100 if m["chain_hits_total"] else 0.0
+        m["best_hit_rank"] = best_hit_rank[m["member_id"]]
+        m["avg_respect_per_hit_rank"] = avg_respect_per_hit_rank[m["member_id"]]
+        m["score"] = (
+            m["hits_rank"] + m["respect_gained_rank"] + m["respect_lost_rank"] + m["best_hit_rank"] + m["avg_respect_per_hit_rank"]
         )
-
-    for key, descending in (
-        ("best_hit", True),
-        ("avg_respect_per_hit", True),
-        ("win_rate_pct", True),
-        ("retaliation_hits", True),
-        ("bonus_hits", True),
-    ):
-        rank = _dense_rank([(m["member_id"], m[key]) for m in enriched], descending=descending)
-        for m in enriched:
-            m[f"{key}_rank"] = rank[m["member_id"]]
 
     overall_rank = _dense_rank([(m["member_id"], m["score"]) for m in enriched], descending=False)
     for m in enriched:
@@ -151,18 +142,13 @@ def compute_career_stats(current_members: list[dict], war_member_rows: list[dict
             avg_respect_gained = sum(r["respect"] for r in rows) / wars_played
             avg_respect_lost = sum(r["respect_lost"] for r in rows) / wars_played
             avg_best_hit = sum(r["best_hit"] for r in rows) / wars_played
-            avg_retaliation_hits = sum(r["retaliation_hits"] for r in rows) / wars_played
-            avg_bonus_hits = sum(r["bonus_hits"] for r in rows) / wars_played
             # Weighted across wars (sum of totals / sum of totals), not an average of
             # per-war percentages/rates, so a single small-sample war doesn't skew it.
             total_chain_hits = sum(r["chain_hits_total"] for r in rows)
             avg_respect_per_hit = sum(r["chain_respect_total"] for r in rows) / total_chain_hits if total_chain_hits else 0.0
-            failed_attempts = sum(r["losses"] + r["escapes"] + r["draws"] for r in rows)
-            win_rate_pct = (total_chain_hits - failed_attempts) / total_chain_hits * 100 if total_chain_hits else 0.0
         else:
             avg_hits = avg_respect_gained = avg_respect_lost = 0.0
-            avg_best_hit = avg_respect_per_hit = win_rate_pct = 0.0
-            avg_retaliation_hits = avg_bonus_hits = 0.0
+            avg_best_hit = avg_respect_per_hit = 0.0
         results.append(
             {
                 "member_id": m["member_id"],
@@ -174,9 +160,6 @@ def compute_career_stats(current_members: list[dict], war_member_rows: list[dict
                 "avg_respect_lost": avg_respect_lost,
                 "avg_best_hit": avg_best_hit,
                 "avg_respect_per_hit": avg_respect_per_hit,
-                "win_rate_pct": win_rate_pct,
-                "avg_retaliation_hits": avg_retaliation_hits,
-                "avg_bonus_hits": avg_bonus_hits,
             }
         )
 
@@ -187,23 +170,23 @@ def compute_career_stats(current_members: list[dict], war_member_rows: list[dict
     avg_respect_lost_rank = _dense_rank(
         [(r["member_id"], r["avg_respect_lost"]) for r in results], descending=False
     )
+    avg_best_hit_rank = _dense_rank([(r["member_id"], r["avg_best_hit"]) for r in results], descending=True)
+    avg_respect_per_hit_rank = _dense_rank(
+        [(r["member_id"], r["avg_respect_per_hit"]) for r in results], descending=True
+    )
     for r in results:
         r["avg_hits_rank"] = avg_hits_rank[r["member_id"]]
         r["avg_respect_gained_rank"] = avg_respect_gained_rank[r["member_id"]]
         r["avg_respect_lost_rank"] = avg_respect_lost_rank[r["member_id"]]
-        r["score"] = r["avg_hits_rank"] + r["avg_respect_gained_rank"] + r["avg_respect_lost_rank"]
-
-    # Reference-only metrics, same as the per-war Player Stats page - not part of Score.
-    for key, descending in (
-        ("avg_best_hit", True),
-        ("avg_respect_per_hit", True),
-        ("win_rate_pct", True),
-        ("avg_retaliation_hits", True),
-        ("avg_bonus_hits", True),
-    ):
-        rank = _dense_rank([(r["member_id"], r[key]) for r in results], descending=descending)
-        for r in results:
-            r[f"{key}_rank"] = rank[r["member_id"]]
+        r["avg_best_hit_rank"] = avg_best_hit_rank[r["member_id"]]
+        r["avg_respect_per_hit_rank"] = avg_respect_per_hit_rank[r["member_id"]]
+        r["score"] = (
+            r["avg_hits_rank"]
+            + r["avg_respect_gained_rank"]
+            + r["avg_respect_lost_rank"]
+            + r["avg_best_hit_rank"]
+            + r["avg_respect_per_hit_rank"]
+        )
 
     overall_rank = _dense_rank([(r["member_id"], r["score"]) for r in results], descending=False)
     for r in results:

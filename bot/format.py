@@ -15,13 +15,12 @@ PAYSHEET_HEADERS = [
 
 STAT_HEADERS = [
     "Name", "Total Hits", "Respect Gained", "Respect Lost", "Best Hit",
-    "Avg Respect/Hit", "Win Rate", "Retaliation Hits", "Bonus Hits", "Score", "Overall Rank",
+    "Avg Respect/Hit", "Score", "Overall Rank",
 ]
 
 CAREER_HEADERS = [
     "Name", "Position", "Wars Played", "Avg Hits", "Avg Respect Gained", "Avg Respect Lost",
-    "Avg Best Hit", "Avg Respect/Hit", "Win Rate", "Avg Retaliation Hits", "Avg Bonus Hits",
-    "Score", "Overall Rank",
+    "Avg Best Hit", "Avg Respect/Hit", "Score", "Overall Rank",
 ]
 
 ARMORY_HEADERS = ["Item", "Target Qty", "On Hand", "Needed", "Unit Price", "Cost"]
@@ -147,9 +146,6 @@ def stats_row(m) -> list:
         f"{num(m['respect_lost'], 2)} (#{m['respect_lost_rank']})",
         f"{num(m['best_hit'], 2)} (#{m['best_hit_rank']})",
         f"{num(m['avg_respect_per_hit'], 2)} (#{m['avg_respect_per_hit_rank']})",
-        f"{num(m['win_rate_pct'], 1)}% (#{m['win_rate_pct_rank']})",
-        f"{num(m['retaliation_hits'])} (#{m['retaliation_hits_rank']})",
-        f"{num(m['bonus_hits'])} (#{m['bonus_hits_rank']})",
         str(m["score"]),
         f"#{m['overall_rank']}",
     ]
@@ -163,9 +159,6 @@ def career_row(m) -> list:
         f"{num(m['avg_respect_lost'], 2)} (#{m['avg_respect_lost_rank']})",
         f"{num(m['avg_best_hit'], 2)} (#{m['avg_best_hit_rank']})",
         f"{num(m['avg_respect_per_hit'], 2)} (#{m['avg_respect_per_hit_rank']})",
-        f"{num(m['win_rate_pct'], 1)}% (#{m['win_rate_pct_rank']})",
-        f"{num(m['avg_retaliation_hits'], 2)} (#{m['avg_retaliation_hits_rank']})",
-        f"{num(m['avg_bonus_hits'], 2)} (#{m['avg_bonus_hits_rank']})",
         str(m["score"]),
         f"#{m['overall_rank']}",
     ]

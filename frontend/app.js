@@ -98,7 +98,7 @@ function datetimeLocalToTs(value) {
 
 const STAT_HEADERS = [
   "Name", "Total Hits", "Respect Gained", "Respect Lost",
-  "Best Hit", "Avg Respect/Hit", "Win Rate", "Retaliation Hits", "Bonus Hits",
+  "Best Hit", "Avg Respect/Hit",
   "Score", "Overall Rank",
 ];
 
@@ -110,9 +110,6 @@ function statsRowCells(m) {
     `${num(m.respect_lost, 2)} (#${m.respect_lost_rank})`,
     `${num(m.best_hit, 2)} (#${m.best_hit_rank})`,
     `${num(m.avg_respect_per_hit, 2)} (#${m.avg_respect_per_hit_rank})`,
-    `${num(m.win_rate_pct, 1)}% (#${m.win_rate_pct_rank})`,
-    `${num(m.retaliation_hits)} (#${m.retaliation_hits_rank})`,
-    `${num(m.bonus_hits)} (#${m.bonus_hits_rank})`,
     `${m.score}`,
     `#${m.overall_rank}`,
   ];
@@ -1232,9 +1229,6 @@ const CAREER_STAT_TABS = [
   { key: "avg_respect_lost", rankKey: "avg_respect_lost_rank", label: "Avg Respect Lost" },
   { key: "avg_best_hit", rankKey: "avg_best_hit_rank", label: "Avg Best Hit" },
   { key: "avg_respect_per_hit", rankKey: "avg_respect_per_hit_rank", label: "Avg Respect/Hit" },
-  { key: "win_rate_pct", rankKey: "win_rate_pct_rank", label: "Win Rate" },
-  { key: "avg_retaliation_hits", rankKey: "avg_retaliation_hits_rank", label: "Avg Retaliation Hits" },
-  { key: "avg_bonus_hits", rankKey: "avg_bonus_hits_rank", label: "Avg Bonus Hits" },
 ];
 
 async function renderCareerStats() {
@@ -1260,9 +1254,6 @@ async function renderCareerStats() {
         <td>${num(m.avg_respect_lost, 2)} <span class="muted">(#${m.avg_respect_lost_rank})</span></td>
         <td>${num(m.avg_best_hit, 2)} <span class="muted">(#${m.avg_best_hit_rank})</span></td>
         <td>${num(m.avg_respect_per_hit, 2)} <span class="muted">(#${m.avg_respect_per_hit_rank})</span></td>
-        <td>${num(m.win_rate_pct, 1)}% <span class="muted">(#${m.win_rate_pct_rank})</span></td>
-        <td>${num(m.avg_retaliation_hits, 2)} <span class="muted">(#${m.avg_retaliation_hits_rank})</span></td>
-        <td>${num(m.avg_bonus_hits, 2)} <span class="muted">(#${m.avg_bonus_hits_rank})</span></td>
         <td>${m.score}</td>
         <td><strong>#${m.overall_rank}</strong></td>
       </tr>`
@@ -1274,7 +1265,7 @@ async function renderCareerStats() {
           <tr>
             <th>Name</th><th>Position</th><th>Wars Played</th>
             <th>Avg Hits Made</th><th>Avg Respect Gained</th><th>Avg Respect Lost</th>
-            <th>Avg Best Hit</th><th>Avg Respect/Hit</th><th>Win Rate</th><th>Avg Retaliation Hits</th><th>Avg Bonus Hits</th>
+            <th>Avg Best Hit</th><th>Avg Respect/Hit</th>
             <th>Score</th><th>Overall Rank</th>
           </tr>
         </thead>
