@@ -1,12 +1,22 @@
 """Automatic pay_rank progression for the non-leadership member ladder.
 
 The ladder, as specified:
-  Audit Bait      - default for everyone else
-  Petty Launderer - level 15+, linked a Discord account
+  Audit Bait      - default for everyone else; also where anyone missing
+                     Discord (or level) lands regardless of past rank
+  Petty Launderer - level 15+, linked a Discord account; also where anyone
+                     missing an API key lands regardless of past rank
   Ledger Keeper   - Petty Launderer requirements + 10+ hits in the war being
                      synced + we have a pooled API key for them
-  Failed Audit    - was Ledger Keeper (their live Torn position) but didn't
-                     make the 10-hit bar in the war being synced
+  Failed Audit    - specifically "would still be Ledger Keeper except for
+                     the hit count" - was Ledger Keeper (their live Torn
+                     position), still has Discord + a key, just didn't make
+                     the 10-hit bar this war. Missing Discord or a key is
+                     NOT a Failed Audit - it drops straight through to
+                     Audit Bait/Petty Launderer instead, on purpose: the
+                     whole point is to push them toward fixing whichever's
+                     actually missing (mostly the key - only about half the
+                     faction has contributed one) rather than resting on a
+                     rank they no longer fully qualify for.
   Kingpin         - the war's single best non-leadership performer, per the
                      same overall_rank stats.rank_members() already computes
 
@@ -46,12 +56,18 @@ def compute_eligible_rank(
         return "Kingpin"
 
     petty_launderer_eligible = (level or 0) >= 15 and has_discord
-    ledger_keeper_eligible = petty_launderer_eligible and war_hits >= 10 and has_key
+    if not petty_launderer_eligible:
+        return "Audit Bait"
 
-    if ledger_keeper_eligible:
+    if war_hits >= 10 and has_key:
         return "Ledger Keeper"
-    if was_ledger_keeper:
+
+    # Reaches here with level+Discord satisfied but not (hits + key) both -
+    # Failed Audit only if the ONE thing missing is the hit count (they do
+    # have a key) and they currently hold Ledger Keeper. Missing the key
+    # itself skips straight to Petty Launderer, no matter what rank they
+    # held before.
+    if has_key and war_hits < 10 and was_ledger_keeper:
         return "Failed Audit"
-    if petty_launderer_eligible:
-        return "Petty Launderer"
-    return "Audit Bait"
+
+    return "Petty Launderer"
